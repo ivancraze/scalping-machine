@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import {
   CandlestickSeries,
   createChart,
@@ -19,6 +19,7 @@ import {
   removeSavedLineTools,
   restoreLineTools,
   saveLineTools,
+  subscribeToLineTools,
   type LineToolsStorageScope,
 } from '../lib/line-tools-storage';
 import { registerTools } from '../lib/register-tools';
@@ -38,6 +39,10 @@ function lastLogicalIndex(candles: Candle[], latestCandles: Candle[]) {
     latestCandles.filter((candle) => candle[0] > historicalLastOpenTime).map((candle) => candle[0]),
   ).size;
   return candles.length + newerLiveBars - 1;
+}
+
+function intervalFromDataKey(dataKey: string) {
+  return dataKey.slice(dataKey.lastIndexOf(':') + 1);
 }
 
 export function ChartCanvas({
@@ -93,6 +98,11 @@ export function ChartCanvas({
   const lastSeriesOpenTimeRef = useRef<number | null>(null);
   const lastSeriesLogicalIndexRef = useRef(-1);
   const displayedLineToolsStorageScopeRef = useRef<LineToolsStorageScope | null>(null);
+  const lineToolsSourceId = useId();
+  const pendingLineToolsSaveRef = useRef<number | null>(null);
+  const persistLineToolsRef = useRef<() => void>(() => {});
+  const pendingLineToolsSyncRef = useRef<unknown[] | null | undefined>(undefined);
+  const pendingLineToolsSyncTimeoutRef = useRef<number | null>(null);
   const onDrawingCompleteRef = useRef(onDrawingComplete);
   const onCandleChangeRef = useRef(onCandleChange);
   const historyLoadingRef = useRef({
@@ -145,9 +155,24 @@ export function ChartCanvas({
     const lineTools = createLineToolsPlugin(chart, candleSeries);
     registerTools(lineTools);
     lineTools.setMagnetThreshold(8);
-    lineTools.subscribeLineToolsAfterEdit(({ stage }) => {
+    const persistLineTools = () => {
       const scope = displayedLineToolsStorageScopeRef.current;
-      if (scope) saveLineTools(lineTools, scope);
+      if (scope) saveLineTools(lineTools, scope, lineToolsSourceId);
+    };
+    persistLineToolsRef.current = () => {
+      if (pendingLineToolsSaveRef.current !== null) {
+        window.clearTimeout(pendingLineToolsSaveRef.current);
+        pendingLineToolsSaveRef.current = null;
+      }
+      persistLineTools();
+    };
+    lineTools.subscribeLineToolsAfterEdit(({ stage }) => {
+      if (pendingLineToolsSaveRef.current === null) {
+        pendingLineToolsSaveRef.current = window.setTimeout(() => {
+          pendingLineToolsSaveRef.current = null;
+          persistLineTools();
+        }, 16);
+      }
       if (stage === 'lineToolFinished' || stage === 'pathFinished') onDrawingCompleteRef.current();
     });
     const loadHistoryNearEdge = (range: { from: number; to: number } | null) => {
@@ -168,8 +193,7 @@ export function ChartCanvas({
     const removeSelectedOnRightClick = (event: MouseEvent) => {
       event.preventDefault();
       lineTools.removeSelectedLineTools();
-      const scope = displayedLineToolsStorageScopeRef.current;
-      if (scope) saveLineTools(lineTools, scope);
+      persistLineToolsRef.current();
     };
     container.addEventListener('contextmenu', removeSelectedOnRightClick);
     chartRef.current = chart;
@@ -182,6 +206,7 @@ export function ChartCanvas({
     });
     observer.observe(container);
     return () => {
+      persistLineToolsRef.current();
       observer.disconnect();
       container.removeEventListener('contextmenu', removeSelectedOnRightClick);
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(loadHistoryNearEdge);
@@ -202,7 +227,7 @@ export function ChartCanvas({
       displayedLineToolsStorageScopeRef.current = null;
       setReady(false);
     };
-  }, []);
+  }, [lineToolsSourceId]);
 
   useLayoutEffect(() => {
     chartRef.current?.applyOptions(chartThemeOptions(palette));
@@ -238,8 +263,9 @@ export function ChartCanvas({
     candleRef.current.setData(candles.map(toCandlestick));
     volumeRef.current.setData(candles.map(toVolume));
     if (displayedLineToolsStorageScopeRef.current !== lineToolsStorageScope) {
+      persistLineToolsRef.current();
       lineToolsRef.current.removeAllLineTools();
-      restoreLineTools(lineToolsRef.current, lineToolsStorageScope);
+      restoreLineTools(lineToolsRef.current, lineToolsStorageScope, intervalFromDataKey(dataKey));
       displayedLineToolsStorageScopeRef.current = lineToolsStorageScope;
     }
     lastSeriesOpenTimeRef.current = candles.at(-1)?.[0] ?? null;
@@ -279,6 +305,31 @@ export function ChartCanvas({
   }, [candles, dataKey, lineToolsStorageScope, ready]);
 
   useEffect(() => {
+    if (!ready || !lineToolsRef.current) return;
+    const unsubscribe = subscribeToLineTools(lineToolsStorageScope, ({ sourceId, lineTools }) => {
+      if (sourceId === lineToolsSourceId || !lineToolsRef.current) return;
+      pendingLineToolsSyncRef.current = lineTools;
+      if (pendingLineToolsSyncTimeoutRef.current !== null) return;
+      pendingLineToolsSyncTimeoutRef.current = window.setTimeout(() => {
+        pendingLineToolsSyncTimeoutRef.current = null;
+        const nextLineTools = pendingLineToolsSyncRef.current;
+        pendingLineToolsSyncRef.current = undefined;
+        if (nextLineTools === undefined || !lineToolsRef.current) return;
+        lineToolsRef.current.removeAllLineTools();
+        if (nextLineTools) lineToolsRef.current.importLineTools(JSON.stringify(nextLineTools));
+      }, 16);
+    });
+    return () => {
+      unsubscribe();
+      if (pendingLineToolsSyncTimeoutRef.current !== null) {
+        window.clearTimeout(pendingLineToolsSyncTimeoutRef.current);
+        pendingLineToolsSyncTimeoutRef.current = null;
+      }
+      pendingLineToolsSyncRef.current = undefined;
+    };
+  }, [lineToolsSourceId, lineToolsStorageScope, ready]);
+
+  useEffect(() => {
     if (!ready || !candleRef.current || !volumeRef.current) return;
     const chart = chartRef.current;
     const visibleRange = chart?.timeScale().getVisibleLogicalRange();
@@ -311,9 +362,13 @@ export function ChartCanvas({
   useEffect(() => {
     if (!ready || resetRequest === handledResetRequestRef.current || !lineToolsRef.current) return;
     handledResetRequestRef.current = resetRequest;
+    if (pendingLineToolsSaveRef.current !== null) {
+      window.clearTimeout(pendingLineToolsSaveRef.current);
+      pendingLineToolsSaveRef.current = null;
+    }
     lineToolsRef.current.removeAllLineTools();
-    removeSavedLineTools(lineToolsStorageScope);
-  }, [lineToolsStorageScope, ready, resetRequest]);
+    removeSavedLineTools(lineToolsStorageScope, lineToolsSourceId);
+  }, [lineToolsSourceId, lineToolsStorageScope, ready, resetRequest]);
 
   return (
     <div

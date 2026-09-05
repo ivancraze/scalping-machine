@@ -146,12 +146,12 @@ describe('chart UI migration regressions', () => {
 
   it('consumes a reset once and preserves another chart’s saved drawings after switching symbols', async () => {
     const drawing = '[{"id":"saved-line","toolType":"HorizontalLine","points":[],"options":{}}]';
-    saveLineTools({ exportLineTools: () => drawing }, btc);
-    saveLineTools({ exportLineTools: () => drawing }, eth);
+    saveLineTools({ exportLineTools: () => drawing }, btc, 'btc-chart');
+    saveLineTools({ exportLineTools: () => drawing }, eth, 'eth-chart');
     await act(() => root.render(<ChartCanvas {...props} />));
     await act(() => root.render(<ChartCanvas {...props} resetRequest={1} />));
     const btcImporter = { importLineTools: vi.fn() };
-    restoreLineTools(btcImporter, btc);
+    restoreLineTools(btcImporter, btc, '1m');
     expect(btcImporter.importLineTools).not.toHaveBeenCalled();
 
     const clearCalls = mocks.lineTools.removeAllLineTools.mock.calls.length;
@@ -165,8 +165,23 @@ describe('chart UI migration regressions', () => {
     expect(mocks.lineTools.removeAllLineTools).toHaveBeenCalledTimes(clearCalls + 1);
     expect(mocks.lineTools.importLineTools).toHaveBeenCalledWith(drawing);
     const ethImporter = { importLineTools: vi.fn() };
-    restoreLineTools(ethImporter, eth);
+    restoreLineTools(ethImporter, eth, '1m');
     expect(ethImporter.importLineTools).toHaveBeenCalledWith(drawing);
+  });
+
+  it('applies drawing changes published by another chart of the same pair', async () => {
+    const drawing = '[{"id":"shared-line","toolType":"HorizontalLine","points":[],"options":{}}]';
+    await act(() => root.render(<ChartCanvas {...props} />));
+    mocks.lineTools.removeAllLineTools.mockClear();
+    mocks.lineTools.importLineTools.mockClear();
+
+    await act(async () => {
+      saveLineTools({ exportLineTools: () => drawing }, btc, '15m-chart');
+      await new Promise((resolve) => window.setTimeout(resolve, 20));
+    });
+
+    expect(mocks.lineTools.removeAllLineTools).toHaveBeenCalledTimes(1);
+    expect(mocks.lineTools.importLineTools).toHaveBeenCalledWith(drawing);
   });
 
   it('shifts the visible range by one bar without returning to realtime when a live candle is appended', async () => {

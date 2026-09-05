@@ -50,10 +50,7 @@ export function Chart({ symbol, selected }: { symbol: string; selected?: MarketR
   const interval = intervals[timeframe];
   const secondsPerCandle = interval.endsWith('s') ? Number.parseInt(interval, 10) : null;
   const dataKey = `${symbol}:${interval}`;
-  const lineToolsStorageScope = useMemo(
-    () => ({ exchange: 'binance-usdm', symbol, interval }),
-    [interval, symbol],
-  );
+  const lineToolsStorageScope = useMemo(() => ({ exchange: 'binance-usdm', symbol }), [symbol]);
   const candleHistory = useCandleHistoryQuery(symbol, secondsPerCandle ? '1m' : interval);
   const includesCurrentEnd = Boolean(candleHistory.data?.pages.some((page) => page.reachesNewerEnd));
   const latestCandles = useLatestCandlesQuery(symbol, secondsPerCandle ? '1m' : interval, includesCurrentEnd);
