@@ -5,6 +5,7 @@ export const primaryDrawingTools: Array<{ tool: ChartTool; icon: string; title: 
   { tool: 'TrendLine', icon: '╱', title: 'Трендовая линия' },
   { tool: 'HorizontalRay', icon: '⇢', title: 'Горизонтальный луч' },
   { tool: 'Rectangle', icon: '□', title: 'Прямоугольник' },
+  { tool: 'Ruler', icon: '↗', title: 'Линейка' },
 ];
 
 export const extraDrawingTools: Array<{ tool: ChartTool; title: string }> = [

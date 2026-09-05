@@ -11,6 +11,7 @@ import { registerPriceRangePlugin } from 'lightweight-charts-line-tools-price-ra
 import { LineToolRectangle } from 'lightweight-charts-line-tools-rectangle';
 import { registerTextPlugin } from 'lightweight-charts-line-tools-text';
 import { registerTrianglePlugin } from 'lightweight-charts-line-tools-triangle';
+import { LineToolRuler } from '../model/ruler-tool';
 type PluginWithLooseRegistration = ILineToolsPlugin & {
   registerLineTool: (type: string, toolClass: new (...args: never[]) => unknown) => void;
 };
@@ -21,6 +22,7 @@ export const registerTools = (plugin: ILineToolsPlugin) => {
   registerLinesPlugin(lineTools);
   registerFreehandPlugin(lineTools);
   lineTools.registerLineTool('Rectangle', LineToolRectangle);
+  lineTools.registerLineTool('Ruler', LineToolRuler);
   lineTools.registerLineTool('Circle', LineToolCircle);
   registerTrianglePlugin(lineTools);
   registerPathPlugin(lineTools);
