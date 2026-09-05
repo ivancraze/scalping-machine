@@ -1,14 +1,11 @@
-export type { AlertRule, Candle, DepthLevel, MarketRow } from './model/types';
+export type { Candle } from './model/candle';
+export type { MarketRow } from './model/market';
 export {
-  depthQueryOptions,
-  marketQueryKeys,
   mergeCandlePages,
   useCandleHistoryQuery,
   useLiveCandleSubscription,
   useLatestCandlesQuery,
-  useCorrelationsQuery,
-  useMarketQuery,
   useSecondCandlesQuery,
-} from './api/queries';
-export { isBinanceTickerUpdate, type BinanceTickerUpdate } from './api/binance-streams';
-export { correlationFromCandles, pearson, returnsFrom } from './lib/correlation';
+} from './model/candle-query';
+export { useCorrelationsQuery } from './model/correlation-query';
+export { useMarketQuery } from './model/market-query';

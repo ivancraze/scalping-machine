@@ -1,5 +1,8 @@
-import { binanceHttpClient, throwRequestError } from '../../../shared/api/http-client';
-import type { Candle, DepthLevel, MarketRow } from '../model/types';
+import { throwRequestError } from '../../../shared/api/http-client';
+import type { Candle } from '../model/candle';
+import type { MarketDepthLevel } from '../model/depth';
+import type { MarketRow, MarketTrade } from '../model/market';
+import { binanceHttpClient } from './binance-client';
 
 const asNumber = (value: string | number) => Number(value);
 
@@ -14,7 +17,7 @@ type FuturesSymbol = {
 
 type MarketTicker = Record<string, string>;
 type BinanceCandle = [number, string, string, string, string, string, ...unknown[]];
-export type AggregateTrade = { T: number; p: string; q: string };
+type BinanceAggregateTrade = { T: number; p: string; q: string };
 export type Instruments = Record<string, string>;
 
 export type CandleRequest = {
@@ -89,13 +92,13 @@ export async function getCandles(
   }
 }
 
-export async function getAggregateTrades(symbol: string, signal?: AbortSignal): Promise<AggregateTrade[]> {
+export async function getAggregateTrades(symbol: string, signal?: AbortSignal): Promise<MarketTrade[]> {
   try {
-    const { data } = await binanceHttpClient.get<AggregateTrade[]>('/aggTrades', {
+    const { data } = await binanceHttpClient.get<BinanceAggregateTrade[]>('/aggTrades', {
       params: { symbol, limit: 1000 },
       signal,
     });
-    return data;
+    return data.map(toMarketTrade);
   } catch (error) {
     throwRequestError(error, 'Aggregate trades unavailable');
   }
@@ -106,7 +109,7 @@ export async function getDepth(
   minNotional: number,
   distance: number,
   signal?: AbortSignal,
-): Promise<{ mid: number; levels: DepthLevel[] }> {
+): Promise<{ mid: number; levels: MarketDepthLevel[] }> {
   try {
     const { data } = await binanceHttpClient.get<{ bids: [string, string][]; asks: [string, string][] }>(
       '/depth',
@@ -128,4 +131,8 @@ export async function getDepth(
   } catch (error) {
     throwRequestError(error, 'Order book unavailable');
   }
+}
+
+function toMarketTrade({ T, p, q }: BinanceAggregateTrade): MarketTrade {
+  return { timestamp: T, price: p, quantity: q };
 }

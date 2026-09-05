@@ -14,38 +14,34 @@ import {
 } from 'antd';
 import { FlagFilled, FlagOutlined, FilterOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import { useCorrelationsQuery } from '../../../entities/market';
-import { compactUsd as compact, percentage as rate } from '../../../shared/lib/format';
 import {
-  nextSortState,
+  marketListSortMark,
+  nextMarketListSortState,
   selectCorrelationSymbols,
   selectMarketRows,
-  sortMark,
-  type SortKey,
-} from '../lib/market-list';
+  useMarketListControls,
+  type MarketListSortKey,
+} from '../../../features/market-list-controls';
+import { compactUsd as compact, percentage as rate } from '../../../shared/lib/format';
 import { MIN_CORRELATION_VOLUME } from '../model/constants';
 import type { MarketListProps, MarketTableRow } from '../model/types';
 import styles from './MarketList.module.scss';
 
 const EMPTY_CORRELATIONS: Record<string, number> = {};
-const FAVORITES_STORAGE_KEY = 'pulse-terminal:favorite-symbols';
-
-function readFavoriteSymbols() {
-  try {
-    const stored = JSON.parse(localStorage.getItem(FAVORITES_STORAGE_KEY) ?? '[]');
-    return new Set(
-      Array.isArray(stored) ? stored.filter((symbol): symbol is string => typeof symbol === 'string') : [],
-    );
-  } catch {
-    return new Set<string>();
-  }
-}
 
 export function MarketList({ market, selectedSymbol, onSymbolChange }: MarketListProps) {
-  const [query, setQuery] = useState('');
-  const [sorting, setSorting] = useState<SortKey | null>(null);
-  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
-  const [activeTab, setActiveTab] = useState<'futures' | 'favorites'>('futures');
-  const [favoriteSymbols, setFavoriteSymbols] = useState(readFavoriteSymbols);
+  const {
+    query,
+    setQuery,
+    sorting,
+    setSorting,
+    sortDirection,
+    setSortDirection,
+    activeTab,
+    setActiveTab,
+    favoriteSymbols,
+    toggleFavorite,
+  } = useMarketListControls();
   const [viewport, setViewport] = useState({ width: 520, height: 400 });
   const viewportRef = useRef<HTMLDivElement>(null);
   const tableRef = useRef<TableRef>(null);
@@ -97,7 +93,7 @@ export function MarketList({ market, selectedSymbol, onSymbolChange }: MarketLis
   }, [rows, correlations, correlationsQuery.isFetching, correlationSymbols]);
 
   const columns = useMemo<TableColumnsType<MarketTableRow>>(() => {
-    const header = (key: SortKey, label: string) => ({
+    const header = (key: MarketListSortKey, label: string) => ({
       key,
       title: (
         <Button
@@ -106,13 +102,13 @@ export function MarketList({ market, selectedSymbol, onSymbolChange }: MarketLis
           aria-label={`Сортировать: ${label}`}
           aria-describedby={key === 'correlation' ? 'correlation-limit' : undefined}
           onClick={() => {
-            const next = nextSortState({ sorting, sortDirection }, key);
+            const next = nextMarketListSortState({ sorting, sortDirection }, key);
             setSorting(next.sorting);
             setSortDirection(next.sortDirection);
           }}
         >
           {label}
-          {sortMark(key, sorting, sortDirection)}
+          {marketListSortMark(key, sorting, sortDirection)}
         </Button>
       ),
       onHeaderCell: () => ({
@@ -143,17 +139,7 @@ export function MarketList({ market, selectedSymbol, onSymbolChange }: MarketLis
               aria-pressed={isFavorite}
               onClick={(event) => {
                 event.stopPropagation();
-                setFavoriteSymbols((current) => {
-                  const next = new Set(current);
-                  if (next.has(row.symbol)) next.delete(row.symbol);
-                  else next.add(row.symbol);
-                  try {
-                    localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify([...next].sort()));
-                  } catch {
-                    // Закладки работают до закрытия страницы, если хранилище недоступно.
-                  }
-                  return next;
-                });
+                toggleFavorite(row.symbol);
               }}
               onKeyDown={(event) => event.stopPropagation()}
             />
@@ -204,7 +190,7 @@ export function MarketList({ market, selectedSymbol, onSymbolChange }: MarketLis
           ),
       },
     ];
-  }, [favoriteSymbols, sorting, sortDirection]);
+  }, [favoriteSymbols, setSortDirection, setSorting, sortDirection, sorting, toggleFavorite]);
 
   const changeSymbol = (symbol: string) => {
     onSymbolChange(symbol);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { correlationFromCandles } from './correlation';
-import type { Candle } from '../model/types';
+import type { Candle } from '../model/candle';
 
 const candlesFromCloses = (closes: number[]): Candle[] =>
   closes.map((close, index) => [index, String(close), String(close), String(close), String(close), '0']);

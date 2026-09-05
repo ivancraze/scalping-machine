@@ -1,9 +1,12 @@
 import type { MarketRow } from '../../../entities/market';
 
-export type SortKey = 'symbol' | 'change' | 'volume' | 'natr' | 'correlation';
-export type SortState = { sorting: SortKey | null; sortDirection: 'asc' | 'desc' };
+export type MarketListSortKey = 'symbol' | 'change' | 'volume' | 'natr' | 'correlation';
+export type MarketListSortState = { sorting: MarketListSortKey | null; sortDirection: 'asc' | 'desc' };
 
-export function nextSortState({ sorting, sortDirection }: SortState, key: SortKey): SortState {
+export function nextMarketListSortState(
+  { sorting, sortDirection }: MarketListSortState,
+  key: MarketListSortKey,
+): MarketListSortState {
   const initialDirection = key === 'symbol' ? 'asc' : 'desc';
   if (sorting !== key) return { sorting: key, sortDirection: initialDirection };
   if (sortDirection === initialDirection)
@@ -21,7 +24,7 @@ export function selectCorrelationSymbols(market: MarketRow[], minVolume: number)
 export function selectMarketRows(
   market: MarketRow[],
   query: string,
-  sorting: SortKey | null,
+  sorting: MarketListSortKey | null,
   sortDirection: 'asc' | 'desc',
   correlations: Record<string, number>,
 ) {
@@ -41,5 +44,8 @@ export function selectMarketRows(
   });
 }
 
-export const sortMark = (key: SortKey, sorting: SortKey | null, sortDirection: 'asc' | 'desc') =>
-  sorting === key ? (sortDirection === 'asc' ? ' ↑' : ' ↓') : '';
+export const marketListSortMark = (
+  key: MarketListSortKey,
+  sorting: MarketListSortKey | null,
+  sortDirection: 'asc' | 'desc',
+) => (sorting === key ? (sortDirection === 'asc' ? ' ↑' : ' ↓') : '');

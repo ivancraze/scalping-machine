@@ -36,23 +36,22 @@ export class BinanceWebSocketClient {
   ) {}
 
   subscribe(stream: string, onMessage: StreamListener, onReconnect?: ReconnectListener) {
-    const normalizedStream = stream;
-    const subscriptions = this.subscriptions.get(normalizedStream) ?? new Set<Subscription>();
+    const subscriptions = this.subscriptions.get(stream) ?? new Set<Subscription>();
     const isNewStream = subscriptions.size === 0;
     const subscription = { onMessage, onReconnect };
     subscriptions.add(subscription);
-    this.subscriptions.set(normalizedStream, subscriptions);
+    this.subscriptions.set(stream, subscriptions);
 
-    if (this.socket?.readyState === SOCKET_OPEN && isNewStream) this.send('SUBSCRIBE', [normalizedStream]);
+    if (this.socket?.readyState === SOCKET_OPEN && isNewStream) this.send('SUBSCRIBE', [stream]);
     else this.connect();
 
     return () => {
-      const activeSubscriptions = this.subscriptions.get(normalizedStream);
+      const activeSubscriptions = this.subscriptions.get(stream);
       if (!activeSubscriptions) return;
       activeSubscriptions.delete(subscription);
       if (activeSubscriptions.size > 0) return;
-      this.subscriptions.delete(normalizedStream);
-      if (this.socket?.readyState === SOCKET_OPEN) this.send('UNSUBSCRIBE', [normalizedStream]);
+      this.subscriptions.delete(stream);
+      if (this.socket?.readyState === SOCKET_OPEN) this.send('UNSUBSCRIBE', [stream]);
       if (this.subscriptions.size === 0) this.disconnect();
     };
   }

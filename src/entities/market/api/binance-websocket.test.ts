@@ -101,6 +101,24 @@ describe('BinanceWebSocketClient', () => {
     expect(onReconnect).toHaveBeenCalledTimes(1);
   });
 
+  it('cancels a scheduled reconnect after the final unsubscribe', () => {
+    vi.useFakeTimers();
+    const sockets: FakeWebSocket[] = [];
+    const client = new BinanceWebSocketClient('ws://test', () => {
+      const socket = new FakeWebSocket();
+      sockets.push(socket);
+      return socket;
+    });
+
+    const unsubscribe = client.subscribe('btcusdt@aggTrade', vi.fn());
+    sockets[0].open();
+    sockets[0].closeFromServer();
+    unsubscribe();
+    vi.advanceTimersByTime(15_000);
+
+    expect(sockets).toHaveLength(1);
+  });
+
   it('ignores messages for inactive streams', () => {
     const sockets: FakeWebSocket[] = [];
     const client = new BinanceWebSocketClient('ws://test', () => {

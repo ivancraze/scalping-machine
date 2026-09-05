@@ -18,4 +18,4 @@ export function returnsFrom(candles: Candle[]) {
 export function correlationFromCandles(left: Candle[], right: Candle[]) {
   return pearson(returnsFrom(left), returnsFrom(right));
 }
-import type { Candle } from '../model/types';
+import type { Candle } from '../model/candle';

@@ -1,8 +1,8 @@
-import { binanceWebSocket } from '../../../shared/api/binance-websocket';
-import type { Candle } from '../model/types';
-import type { AggregateTrade } from './binance';
+import { binanceWebSocket } from './binance-websocket';
+import type { Candle } from '../model/candle';
+import type { MarketTickerUpdate, MarketTrade } from '../model/market';
 
-export type BinanceTickerUpdate = {
+type BinanceTickerUpdate = {
   s: string;
   c: string;
   P: string;
@@ -41,6 +41,21 @@ export function isBinanceTickerUpdate(value: unknown): value is BinanceTickerUpd
   );
 }
 
+function toMarketTickerUpdate(ticker: BinanceTickerUpdate): MarketTickerUpdate {
+  const price = Number(ticker.c);
+  const high = Number(ticker.h);
+  const low = Number(ticker.l);
+  return {
+    symbol: ticker.s,
+    price,
+    change: Number(ticker.P),
+    range: (high / low) * 100 - 100,
+    natr: ((high - low) / price) * 100,
+    trades: ticker.n,
+    volume: Number(ticker.q),
+  };
+}
+
 export function toCandle(message: BinanceKlineMessage): Candle {
   const { k } = message;
   return [k.t, k.o, k.h, k.l, k.c, k.v];
@@ -61,12 +76,41 @@ export function subscribeKline(
 
 export function subscribeAggregateTrades(
   symbol: string,
-  onTrade: (trade: AggregateTrade) => void,
+  onTrade: (trade: MarketTrade) => void,
   onReconnect?: () => void,
 ) {
   return binanceWebSocket.subscribe(
     `${symbol.toLowerCase()}@aggTrade`,
-    (message) => onTrade(message as AggregateTrade),
+    (message) => {
+      if (!isBinanceAggregateTrade(message)) return;
+      onTrade({ timestamp: message.T, price: message.p, quantity: message.q });
+    },
     onReconnect,
+  );
+}
+
+export function subscribeMarketTickers(
+  onUpdates: (updates: MarketTickerUpdate[]) => void,
+  onReconnect?: () => void,
+) {
+  return binanceWebSocket.subscribe(
+    '!ticker@arr',
+    (message) => {
+      if (!Array.isArray(message)) return;
+      const updates = message.filter(isBinanceTickerUpdate).map(toMarketTickerUpdate);
+      if (updates.length > 0) onUpdates(updates);
+    },
+    onReconnect,
+  );
+}
+
+function isBinanceAggregateTrade(value: unknown): value is { T: number; p: string; q: string } {
+  if (typeof value !== 'object' || value === null) return false;
+  const trade = value as Record<string, unknown>;
+  return (
+    typeof trade.T === 'number' &&
+    Number.isFinite(trade.T) &&
+    isFiniteNumericString(trade.p) &&
+    isFiniteNumericString(trade.q)
   );
 }

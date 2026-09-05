@@ -26,8 +26,9 @@
 }
 .timeframes {
   display: flex;
-  height: 34px;
   align-items: center;
+  height: 34px;
+  justify-content: end;
   overflow-x: auto;
   padding: 0 8px;
   border-bottom: 1px solid var(--border-subtle);
