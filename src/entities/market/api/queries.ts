@@ -1,6 +1,9 @@
+import { useEffect } from 'react';
 import { useInfiniteQuery, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
-import { getCandles, getDepth, getInstruments, getMarket } from './binance';
+import { getAggregateTrades, getCandles, getDepth, getInstruments, getMarket } from './binance';
+import { subscribeAggregateTrades, subscribeKline } from './binance-streams';
 import { pearson, returnsFrom } from '../lib/correlation';
+import { aggregateSecondTrades, updateSecondCandle } from '../lib/second-candles';
 import type { Candle } from '../model/types';
 
 const CANDLE_PAGE_SIZE = 1000;
@@ -16,6 +19,8 @@ export const marketQueryKeys = {
     [...marketQueryKeys.all, 'candles', 'history', symbol, interval] as const,
   latestCandles: (symbol: string, interval: string) =>
     [...marketQueryKeys.all, 'candles', 'latest', symbol, interval] as const,
+  secondCandles: (symbol: string, secondsPerCandle: number) =>
+    [...marketQueryKeys.all, 'candles', 'seconds', symbol, secondsPerCandle] as const,
   correlations: (symbols: string[]) => [...marketQueryKeys.all, 'correlations', '1h', symbols] as const,
   depth: (symbol: string, minNotional: number, distance: number) =>
     [...marketQueryKeys.all, 'depth', symbol, minNotional, distance] as const,
@@ -100,11 +105,73 @@ export function useLatestCandlesQuery(symbol: string, interval: string, enabled 
   return useQuery({
     queryKey: marketQueryKeys.latestCandles(symbol, interval),
     queryFn: ({ signal }) => getCandles(symbol, interval, { limit: 2, signal }),
-    staleTime: 15_000,
-    refetchInterval: 30_000,
-    refetchOnWindowFocus: true,
+    staleTime: Infinity,
     enabled,
   });
+}
+
+export function mergeLatestCandle(candles: Candle[] | undefined, candle: Candle): Candle[] {
+  if (!candles || candles.length === 0) return [candle];
+  const previous = candles.at(-1);
+  if (!previous || candle[0] < previous[0]) return candles;
+  if (candle[0] === previous[0]) return [...candles.slice(0, -1), candle];
+  return [...candles, candle].slice(-2);
+}
+
+export function useLiveCandleSubscription(symbol: string, interval: string, enabled: boolean) {
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    if (!enabled) return;
+    const queryKey = marketQueryKeys.latestCandles(symbol, interval);
+    const resync = () => {
+      void queryClient
+        .fetchQuery({ queryKey, queryFn: ({ signal }) => getCandles(symbol, interval, { limit: 2, signal }) })
+        .catch(() => undefined);
+    };
+    return subscribeKline(
+      symbol,
+      interval,
+      (candle) =>
+        queryClient.setQueryData<Candle[]>(queryKey, (previous) => mergeLatestCandle(previous, candle)),
+      resync,
+    );
+  }, [enabled, interval, queryClient, symbol]);
+}
+
+export function useSecondCandlesQuery(symbol: string, secondsPerCandle: number | null) {
+  const queryClient = useQueryClient();
+  const enabled = secondsPerCandle !== null;
+  const query = useQuery({
+    queryKey: marketQueryKeys.secondCandles(symbol, secondsPerCandle ?? 1),
+    queryFn: async ({ signal }) =>
+      aggregateSecondTrades(await getAggregateTrades(symbol, signal), secondsPerCandle ?? 1),
+    staleTime: Infinity,
+    enabled,
+  });
+  useEffect(() => {
+    if (!secondsPerCandle) return;
+    const queryKey = marketQueryKeys.secondCandles(symbol, secondsPerCandle);
+    const resync = () => {
+      void queryClient
+        .fetchQuery({
+          queryKey,
+          queryFn: ({ signal }) =>
+            getAggregateTrades(symbol, signal).then((trades) =>
+              aggregateSecondTrades(trades, secondsPerCandle),
+            ),
+        })
+        .catch(() => undefined);
+    };
+    return subscribeAggregateTrades(
+      symbol,
+      (trade) =>
+        queryClient.setQueryData<Candle[]>(queryKey, (previous) =>
+          updateSecondCandle(previous ?? [], trade, secondsPerCandle),
+        ),
+      resync,
+    );
+  }, [queryClient, secondsPerCandle, symbol]);
+  return query;
 }
 
 export function mergeCandlePages(pages: CandlePage[] | undefined): Candle[] {

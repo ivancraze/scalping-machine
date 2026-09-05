@@ -14,6 +14,7 @@ type FuturesSymbol = {
 
 type MarketTicker = Record<string, string>;
 type BinanceCandle = [number, string, string, string, string, string, ...unknown[]];
+export type AggregateTrade = { T: number; p: string; q: string };
 export type Instruments = Record<string, string>;
 
 export type CandleRequest = {
@@ -85,6 +86,18 @@ export async function getCandles(
     return data.map((item) => [item[0], item[1], item[2], item[3], item[4], item[5]]);
   } catch (error) {
     throwRequestError(error, 'Candles unavailable');
+  }
+}
+
+export async function getAggregateTrades(symbol: string, signal?: AbortSignal): Promise<AggregateTrade[]> {
+  try {
+    const { data } = await binanceHttpClient.get<AggregateTrade[]>('/aggTrades', {
+      params: { symbol, limit: 1000 },
+      signal,
+    });
+    return data;
+  } catch (error) {
+    throwRequestError(error, 'Aggregate trades unavailable');
   }
 }
 
