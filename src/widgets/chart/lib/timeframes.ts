@@ -1,5 +1,8 @@
 export const timeframes = ['1с', '5с', '15с', '1м', '5м', '15м', '1ч', '4ч', '1д'];
 export const intervals: Record<string, string> = {
+  '1с': '1s',
+  '5с': '5s',
+  '15с': '15s',
   '1м': '1m',
   '5м': '5m',
   '15м': '15m',
