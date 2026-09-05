@@ -54,7 +54,7 @@ export async function getMarket(): Promise<MarketRow[]> {
   if (!response.ok) throw new Error('Binance API unavailable');
   const data: Array<Record<string, string>> = await response.json();
   return data
-    .filter((x) => symbols.has(x.symbol) && asNumber(x.quoteVolume) > 800_000)
+    .filter((x) => symbols.has(x.symbol))
     .map((x) => {
       const price = asNumber(x.lastPrice),
         high = asNumber(x.highPrice),

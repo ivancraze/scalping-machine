@@ -12,11 +12,14 @@ export function selectMarketRows(
     .sort((left, right) => {
       const modifier = sortDirection === 'asc' ? 1 : -1;
       if (sorting === 'symbol') return modifier * left.symbol.localeCompare(right.symbol);
-      const leftValue =
-        sorting === 'correlation' ? (correlations[left.symbol] ?? Number.NEGATIVE_INFINITY) : left[sorting];
-      const rightValue =
-        sorting === 'correlation' ? (correlations[right.symbol] ?? Number.NEGATIVE_INFINITY) : right[sorting];
-      return modifier * (leftValue - rightValue);
+      if (sorting === 'correlation') {
+        const leftCorrelation = correlations[left.symbol];
+        const rightCorrelation = correlations[right.symbol];
+        if (leftCorrelation === undefined) return rightCorrelation === undefined ? 0 : 1;
+        if (rightCorrelation === undefined) return -1;
+        return modifier * (leftCorrelation - rightCorrelation);
+      }
+      return modifier * (left[sorting] - right[sorting]);
     });
 }
 export const sortMark = (key: SortKey, sorting: SortKey, sortDirection: 'asc' | 'desc') =>

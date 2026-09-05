@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { getCandles, getMarket, pearson, returnsFrom, type MarketRow } from '../../../entities/market';
 import { compactUsd as compact, percentage as rate } from '../../../shared/lib/format';
 import { selectMarketRows, sortMark, type SortKey } from '../lib/market-list';
@@ -12,7 +12,12 @@ export default function MarketTerminalPage() {
   const [sorting, setSorting] = useState<SortKey>('change');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [correlations, setCorrelations] = useState<Record<string, number>>({});
+  const marketListRef = useRef<HTMLDivElement>(null);
   const selected = market.find((x) => x.symbol === symbol);
+
+  useEffect(() => {
+    if (marketListRef.current) marketListRef.current.scrollTop = 0;
+  }, [query, sorting, sortDirection]);
 
   useEffect(() => {
     const load = () =>
@@ -130,12 +135,25 @@ export default function MarketTerminalPage() {
             <button onClick={() => toggleSort('natr')}>
               Вол 24ч{sortMark('natr', sorting, sortDirection)}
             </button>
-            <button onClick={() => toggleSort('correlation')}>
+            <button
+              onClick={() => toggleSort('correlation')}
+              title="Сортировка использует только рассчитанные значения; остальные монеты в конце списка"
+              aria-describedby="correlation-limit"
+            >
               Корр 24ч{sortMark('correlation', sorting, sortDirection)}
             </button>
           </div>
-          <div className={styles['market-list']}>
-            {rows.slice(0, 30).map((row) => (
+          <div className={styles['market-summary']}>
+            <span role="status">
+              Показано {rows.length} из {market.length}
+            </span>
+            <span id="correlation-limit" title="Сортировка использует только рассчитанные значения">
+              Корреляция: расчёт ограничен 30 монетами
+            </span>
+          </div>
+          <div className={styles['market-list']} ref={marketListRef}>
+            {query && rows.length === 0 && <p className={styles['empty-list']}>Монеты не найдены</p>}
+            {rows.map((row) => (
               <button
                 className={`${styles.row} ${row.symbol === symbol ? styles['selected-row'] : ''}`}
                 onClick={() => changeSymbol(row.symbol)}
@@ -147,7 +165,7 @@ export default function MarketTerminalPage() {
                 <i>{row.natr.toFixed(2)}%</i>
                 <em className={(correlations[row.symbol] ?? 0) >= 0 ? styles.green : styles.red}>
                   {correlations[row.symbol] === undefined
-                    ? '…'
+                    ? '—'
                     : `${(correlations[row.symbol] * 100).toFixed(1)}%`}
                 </em>
               </button>
