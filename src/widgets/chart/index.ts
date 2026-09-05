@@ -1,1 +1,1 @@
-export { ChartCanvas } from '../chart-workspace/ui/ChartCanvas';
+export { Chart } from './ui/Chart';

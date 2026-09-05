@@ -1,6 +1,7 @@
 export type SortKey = 'change' | 'losers' | 'trades' | 'natr' | 'volume';
 export type MarketRow = {
   symbol: string;
+  priceTickSize: string;
   price: number;
   change: number;
   range: number;
