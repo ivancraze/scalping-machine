@@ -108,6 +108,7 @@ export function MarketList({ market, selectedSymbol, onSymbolChange }: MarketLis
       ),
     [correlations, favoriteSymbols, filters, natrs, query, sortDirection, sorting, visibleMarket],
   );
+
   const tableRows = useMemo<MarketTableRow[]>(() => {
     const eligible = new Set(correlationSymbols);
     return rows.map((row) => ({
