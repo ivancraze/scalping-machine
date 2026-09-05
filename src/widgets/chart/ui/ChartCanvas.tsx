@@ -22,6 +22,7 @@ export function ChartCanvas({
   latestCandles,
   dataKey,
   priceTickSize,
+  onCandleChange,
   drawingRequest,
   isDrawingMenuOpen,
   onDrawingComplete,
@@ -37,6 +38,7 @@ export function ChartCanvas({
   latestCandles: Candle[];
   dataKey: string;
   priceTickSize?: string;
+  onCandleChange: (candle: Candle | null) => void;
   drawingRequest: number;
   isDrawingMenuOpen: boolean;
   onDrawingComplete: () => void;
@@ -57,8 +59,10 @@ export function ChartCanvas({
   const hasInitialRangeRef = useRef(false);
   const previousCandlesRef = useRef<Candle[]>([]);
   const latestCandlesRef = useRef(latestCandles);
+  const candlesByTimeRef = useRef(new Map<number, Candle>());
   const lastSeriesOpenTimeRef = useRef<number | null>(null);
   const onDrawingCompleteRef = useRef(onDrawingComplete);
+  const onCandleChangeRef = useRef(onCandleChange);
   const historyLoadingRef = useRef({
     canLoadNewer,
     canLoadOlder,
@@ -72,6 +76,10 @@ export function ChartCanvas({
   useEffect(() => {
     onDrawingCompleteRef.current = onDrawingComplete;
   }, [onDrawingComplete]);
+
+  useEffect(() => {
+    onCandleChangeRef.current = onCandleChange;
+  }, [onCandleChange]);
 
   useEffect(() => {
     latestCandlesRef.current = latestCandles;
@@ -114,6 +122,12 @@ export function ChartCanvas({
       if (bars.barsAfter < 100 && loading.canLoadNewer && !loading.isLoadingNewer) loading.onLoadNewer();
     };
     chart.timeScale().subscribeVisibleLogicalRangeChange(loadHistoryNearEdge);
+    const showCandleAtCrosshair = ({ time }: { time?: Time }) => {
+      onCandleChangeRef.current(
+        typeof time === 'number' ? (candlesByTimeRef.current.get(time * 1000) ?? null) : null,
+      );
+    };
+    chart.subscribeCrosshairMove(showCandleAtCrosshair);
     const removeSelectedOnRightClick = (event: MouseEvent) => {
       event.preventDefault();
       lineTools.removeSelectedLineTools();
@@ -132,6 +146,7 @@ export function ChartCanvas({
       observer.disconnect();
       container.removeEventListener('contextmenu', removeSelectedOnRightClick);
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(loadHistoryNearEdge);
+      chart.unsubscribeCrosshairMove(showCandleAtCrosshair);
       lineTools.destroy();
       chart.remove();
       chartRef.current = null;
@@ -141,6 +156,7 @@ export function ChartCanvas({
       displayedDataKeyRef.current = null;
       hasInitialRangeRef.current = false;
       previousCandlesRef.current = [];
+      candlesByTimeRef.current.clear();
       lastSeriesOpenTimeRef.current = null;
       setReady(false);
     };
@@ -165,10 +181,12 @@ export function ChartCanvas({
     }
     const visibleRange = keyChanged ? null : chart?.timeScale().getVisibleLogicalRange();
     const previousCandles = previousCandlesRef.current;
+    candlesByTimeRef.current = new Map(candles.map((candle) => [candle[0], candle]));
     candleRef.current.setData(candles.map(toCandlestick));
     volumeRef.current.setData(candles.map(toVolume));
     lastSeriesOpenTimeRef.current = candles.at(-1)?.[0] ?? null;
     for (const candle of latestCandlesRef.current) {
+      candlesByTimeRef.current.set(candle[0], candle);
       if (lastSeriesOpenTimeRef.current !== null && candle[0] < lastSeriesOpenTimeRef.current) continue;
       candleRef.current.update(toCandlestick(candle));
       volumeRef.current.update(toVolume(candle));
@@ -198,6 +216,7 @@ export function ChartCanvas({
   useEffect(() => {
     if (!ready || !candleRef.current || !volumeRef.current) return;
     for (const candle of latestCandles) {
+      candlesByTimeRef.current.set(candle[0], candle);
       if (lastSeriesOpenTimeRef.current !== null && candle[0] < lastSeriesOpenTimeRef.current) continue;
       candleRef.current.update(toCandlestick(candle));
       volumeRef.current.update(toVolume(candle));

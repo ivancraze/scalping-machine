@@ -3,17 +3,15 @@ import {
   mergeCandlePages,
   useCandleHistoryQuery,
   useLatestCandlesQuery,
+  type Candle,
   type MarketRow,
 } from '../../../entities/market';
 import { ChartCanvas } from './ChartCanvas';
+import { CandleStats } from './CandleStats';
 import type { ChartTool } from '../model/types';
 import { primaryDrawingTools, extraDrawingTools } from '../lib/drawing-tools';
 import { timeframes, intervals } from '../lib/timeframes';
-import {
-  compactUsd as compact,
-  percentage as rate,
-  displayPrice as display,
-} from '../../../shared/lib/format';
+import { compactUsd as compact, percentage as rate } from '../../../shared/lib/format';
 import styles from './Chart.module.scss';
 
 export function Chart({ symbol, selected }: { symbol: string; selected?: MarketRow }) {
@@ -21,11 +19,15 @@ export function Chart({ symbol, selected }: { symbol: string; selected?: MarketR
   const [drawingTool, setDrawingTool] = useState<ChartTool>(null);
   const [drawingRequest, setDrawingRequest] = useState(0);
   const [isToolsOpen, setIsToolsOpen] = useState(false);
+  const [inspectedCandle, setInspectedCandle] = useState<{ dataKey: string; candle: Candle } | null>(null);
   const interval = intervals[timeframe];
+  const dataKey = `${symbol}:${interval}`;
   const candleHistory = useCandleHistoryQuery(symbol, interval);
   const includesCurrentEnd = Boolean(candleHistory.data?.pages.some((page) => page.reachesNewerEnd));
   const latestCandles = useLatestCandlesQuery(symbol, interval, includesCurrentEnd);
   const candles = useMemo(() => mergeCandlePages(candleHistory.data?.pages), [candleHistory.data?.pages]);
+  const latestCandle = latestCandles.data?.at(-1) ?? candles.at(-1);
+  const displayedCandle = inspectedCandle?.dataKey === dataKey ? inspectedCandle.candle : latestCandle;
   const startDrawing = (tool: ChartTool) => {
     setDrawingTool(tool);
     setDrawingRequest((current) => current + 1);
@@ -37,21 +39,7 @@ export function Chart({ symbol, selected }: { symbol: string; selected?: MarketR
         <b>
           {symbol} · {timeframe}
         </b>
-        <span>
-          ОТКР <strong>{selected ? display(selected.price * 0.998) : '—'}</strong>
-        </span>
-        <span>
-          МАКС <strong>{selected ? display(selected.price * 1.003) : '—'}</strong>
-        </span>
-        <span>
-          МИН <strong>{selected ? display(selected.price * 0.994) : '—'}</strong>
-        </span>
-        <span>
-          ЗАКР <strong>{selected ? display(selected.price) : '—'}</strong>
-        </span>
-        <span>
-          Объём <strong>{selected ? compact(selected.volume) : '—'}</strong>
-        </span>
+        <CandleStats candle={displayedCandle} />
         <div className={`${styles.timeframes} ${styles['chart-timeframes']}`}>
           {timeframes.map((tf) => (
             <button
@@ -128,8 +116,9 @@ export function Chart({ symbol, selected }: { symbol: string; selected?: MarketR
         <ChartCanvas
           candles={candles}
           latestCandles={includesCurrentEnd ? (latestCandles.data ?? []) : []}
-          dataKey={`${symbol}:${interval}`}
+          dataKey={dataKey}
           priceTickSize={selected?.priceTickSize}
+          onCandleChange={(candle) => setInspectedCandle(candle ? { dataKey, candle } : null)}
           drawingRequest={drawingRequest}
           isDrawingMenuOpen={isToolsOpen}
           tool={drawingTool}
