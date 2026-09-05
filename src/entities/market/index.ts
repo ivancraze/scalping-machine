@@ -10,4 +10,5 @@ export {
   useMarketQuery,
   useSecondCandlesQuery,
 } from './api/queries';
-export { pearson, returnsFrom } from './lib/correlation';
+export { isBinanceTickerUpdate, type BinanceTickerUpdate } from './api/binance-streams';
+export { correlationFromCandles, pearson, returnsFrom } from './lib/correlation';

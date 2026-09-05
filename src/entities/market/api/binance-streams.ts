@@ -2,6 +2,16 @@ import { binanceWebSocket } from '../../../shared/api/binance-websocket';
 import type { Candle } from '../model/types';
 import type { AggregateTrade } from './binance';
 
+export type BinanceTickerUpdate = {
+  s: string;
+  c: string;
+  P: string;
+  h: string;
+  l: string;
+  q: string;
+  n: number;
+};
+
 type BinanceKlineMessage = {
   k: {
     t: number;
@@ -12,6 +22,24 @@ type BinanceKlineMessage = {
     v: string;
   };
 };
+
+const isFiniteNumericString = (value: unknown): value is string =>
+  typeof value === 'string' && value.trim() !== '' && Number.isFinite(Number(value));
+
+export function isBinanceTickerUpdate(value: unknown): value is BinanceTickerUpdate {
+  if (typeof value !== 'object' || value === null) return false;
+  const ticker = value as Record<string, unknown>;
+  return (
+    typeof ticker.s === 'string' &&
+    isFiniteNumericString(ticker.c) &&
+    isFiniteNumericString(ticker.P) &&
+    isFiniteNumericString(ticker.h) &&
+    isFiniteNumericString(ticker.l) &&
+    isFiniteNumericString(ticker.q) &&
+    typeof ticker.n === 'number' &&
+    Number.isFinite(ticker.n)
+  );
+}
 
 export function toCandle(message: BinanceKlineMessage): Candle {
   const { k } = message;

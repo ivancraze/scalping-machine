@@ -1,7 +1,7 @@
 import { QueryClient } from '@tanstack/react-query';
 import { describe, expect, it } from 'vitest';
 import { marketQueryKeys, mergeLatestCandle } from './queries';
-import { toCandle } from './binance-streams';
+import { isBinanceTickerUpdate, toCandle } from './binance-streams';
 import { updateSecondCandle } from '../lib/second-candles';
 import type { Candle } from '../model/types';
 
@@ -15,6 +15,15 @@ describe('Binance market stream adapters', () => {
       '11',
       '50',
     ]);
+  });
+
+  it('accepts only finite ticker values before writing them to the market cache', () => {
+    expect(
+      isBinanceTickerUpdate({ s: 'BTCUSDT', c: '100', P: '1', h: '101', l: '99', q: '1000', n: 5 }),
+    ).toBe(true);
+    expect(
+      isBinanceTickerUpdate({ s: 'BTCUSDT', c: 'invalid', P: '1', h: '101', l: '99', q: '1000', n: 5 }),
+    ).toBe(false);
   });
 
   it('updates the current second candle and starts the next one', () => {

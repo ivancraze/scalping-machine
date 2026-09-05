@@ -2,13 +2,14 @@ import { useEffect } from 'react';
 import { useInfiniteQuery, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { getAggregateTrades, getCandles, getDepth, getInstruments, getMarket } from './binance';
 import { subscribeAggregateTrades, subscribeKline } from './binance-streams';
-import { pearson, returnsFrom } from '../lib/correlation';
+import { correlationFromCandles } from '../lib/correlation';
 import { aggregateSecondTrades, updateSecondCandle } from '../lib/second-candles';
 import type { Candle } from '../model/types';
 
 const CANDLE_PAGE_SIZE = 1000;
 const CANDLE_MAX_PAGES = 10;
-const CORRELATION_LIMIT = 72;
+const CORRELATION_HOURS = 24;
+const CORRELATION_CANDLE_LIMIT = CORRELATION_HOURS + 1;
 const CORRELATION_CONCURRENCY = 5;
 
 export const marketQueryKeys = {
@@ -201,16 +202,16 @@ async function mapWithConcurrency<T, R>(
 }
 
 export function useCorrelationsQuery(symbols: string[], enabled: boolean) {
-  const comparedSymbols = [...new Set(symbols)].filter((symbol) => symbol !== 'BTCUSDT').slice(0, 29);
+  const comparedSymbols = [...new Set(symbols)].filter((symbol) => symbol !== 'BTCUSDT');
   const querySymbols = ['BTCUSDT', ...comparedSymbols].sort();
   return useQuery({
     queryKey: marketQueryKeys.correlations(querySymbols),
     queryFn: async ({ signal }): Promise<Record<string, number>> => {
-      const bitcoin = await getCandles('BTCUSDT', '1h', { limit: CORRELATION_LIMIT, signal });
-      const btcReturns = returnsFrom(bitcoin);
+      const endTime = Math.floor(Date.now() / 3_600_000) * 3_600_000 - 1;
+      const bitcoin = await getCandles('BTCUSDT', '1h', { limit: CORRELATION_CANDLE_LIMIT, endTime, signal });
       const items = await mapWithConcurrency(comparedSymbols, CORRELATION_CONCURRENCY, async (symbol) => {
-        const history = await getCandles(symbol, '1h', { limit: CORRELATION_LIMIT, signal });
-        return [symbol, pearson(returnsFrom(history), btcReturns)] as const;
+        const history = await getCandles(symbol, '1h', { limit: CORRELATION_CANDLE_LIMIT, endTime, signal });
+        return [symbol, correlationFromCandles(history, bitcoin)] as const;
       });
       return {
         BTCUSDT: 1,

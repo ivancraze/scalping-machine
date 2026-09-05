@@ -1,0 +1,1 @@
+export const MIN_CORRELATION_VOLUME = 50_000_000;

@@ -14,4 +14,8 @@ export function pearson(left: number[], right: number[]) {
 export function returnsFrom(candles: Candle[]) {
   return candles.slice(1).map((candle, index) => Number(candle[4]) / Number(candles[index][4]) - 1);
 }
+
+export function correlationFromCandles(left: Candle[], right: Candle[]) {
+  return pearson(returnsFrom(left), returnsFrom(right));
+}
 import type { Candle } from '../model/types';
