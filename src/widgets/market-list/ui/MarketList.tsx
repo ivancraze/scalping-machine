@@ -7,11 +7,12 @@ import {
   Spin,
   Table,
   Tag,
+  Tabs,
   Tooltip,
   type TableColumnsType,
   type TableRef,
 } from 'antd';
-import { FilterOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
+import { FlagFilled, FlagOutlined, FilterOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import { useCorrelationsQuery } from '../../../entities/market';
 import { compactUsd as compact, percentage as rate } from '../../../shared/lib/format';
 import {
@@ -26,18 +27,32 @@ import type { MarketListProps, MarketTableRow } from '../model/types';
 import styles from './MarketList.module.scss';
 
 const EMPTY_CORRELATIONS: Record<string, number> = {};
+const FAVORITES_STORAGE_KEY = 'pulse-terminal:favorite-symbols';
+
+function readFavoriteSymbols() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(FAVORITES_STORAGE_KEY) ?? '[]');
+    return new Set(
+      Array.isArray(stored) ? stored.filter((symbol): symbol is string => typeof symbol === 'string') : [],
+    );
+  } catch {
+    return new Set<string>();
+  }
+}
 
 export function MarketList({ market, selectedSymbol, onSymbolChange }: MarketListProps) {
   const [query, setQuery] = useState('');
   const [sorting, setSorting] = useState<SortKey | null>(null);
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
+  const [activeTab, setActiveTab] = useState<'futures' | 'favorites'>('futures');
+  const [favoriteSymbols, setFavoriteSymbols] = useState(readFavoriteSymbols);
   const [viewport, setViewport] = useState({ width: 520, height: 400 });
   const viewportRef = useRef<HTMLDivElement>(null);
   const tableRef = useRef<TableRef>(null);
 
   useEffect(() => {
     tableRef.current?.scrollTo({ top: 0 });
-  }, [query, sorting, sortDirection]);
+  }, [activeTab, favoriteSymbols, query, sorting, sortDirection]);
 
   useEffect(() => {
     const container = viewportRef.current;
@@ -58,15 +73,19 @@ export function MarketList({ market, selectedSymbol, onSymbolChange }: MarketLis
     return () => observer.disconnect();
   }, []);
 
+  const visibleMarket = useMemo(
+    () => (activeTab === 'favorites' ? market.filter((row) => favoriteSymbols.has(row.symbol)) : market),
+    [activeTab, favoriteSymbols, market],
+  );
   const correlationSymbols = useMemo(
-    () => selectCorrelationSymbols(market, MIN_CORRELATION_VOLUME),
-    [market],
+    () => selectCorrelationSymbols(visibleMarket, MIN_CORRELATION_VOLUME),
+    [visibleMarket],
   );
   const correlationsQuery = useCorrelationsQuery(correlationSymbols, correlationSymbols.length > 0);
   const correlations = correlationsQuery.data ?? EMPTY_CORRELATIONS;
   const rows = useMemo(
-    () => selectMarketRows(market, query, sorting, sortDirection, correlations),
-    [correlations, market, query, sortDirection, sorting],
+    () => selectMarketRows(visibleMarket, query, sorting, sortDirection, correlations),
+    [correlations, query, sortDirection, sorting, visibleMarket],
   );
   const tableRows = useMemo<MarketTableRow[]>(() => {
     const eligible = new Set(correlationSymbols);
@@ -107,20 +126,55 @@ export function MarketList({ market, selectedSymbol, onSymbolChange }: MarketLis
     });
     return [
       {
+        key: 'favorite',
+        title: <span className={styles['favorite-header']} aria-label="Закладка" />,
+        width: 32,
+        align: 'center',
+        render: (_, row) => {
+          const isFavorite = favoriteSymbols.has(row.symbol);
+          return (
+            <Button
+              type="text"
+              className={styles['favorite-button']}
+              icon={isFavorite ? <FlagFilled /> : <FlagOutlined />}
+              aria-label={
+                isFavorite ? `Убрать ${row.symbol} из закладок` : `Добавить ${row.symbol} в закладки`
+              }
+              aria-pressed={isFavorite}
+              onClick={(event) => {
+                event.stopPropagation();
+                setFavoriteSymbols((current) => {
+                  const next = new Set(current);
+                  if (next.has(row.symbol)) next.delete(row.symbol);
+                  else next.add(row.symbol);
+                  try {
+                    localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify([...next].sort()));
+                  } catch {
+                    // Закладки работают до закрытия страницы, если хранилище недоступно.
+                  }
+                  return next;
+                });
+              }}
+              onKeyDown={(event) => event.stopPropagation()}
+            />
+          );
+        },
+      },
+      {
         ...header('symbol', 'Монета'),
-        width: 104,
+        width: 72,
         dataIndex: 'symbol',
         render: (symbol: string) => symbol.replace('USDT', ''),
       },
       {
         ...header('volume', 'Объём 24ч'),
-        width: 116,
+        width: 82,
         align: 'right',
         render: (_, row) => <span className={styles.gold}>{compact(row.volume)}$</span>,
       },
       {
         ...header('change', 'Цена 24ч'),
-        width: 100,
+        width: 78,
         align: 'right',
         render: (_, row) => (
           <span className={row.change >= 0 ? styles.green : styles.red}>{rate(row.change)}</span>
@@ -128,13 +182,13 @@ export function MarketList({ market, selectedSymbol, onSymbolChange }: MarketLis
       },
       {
         ...header('natr', 'Вол 24ч'),
-        width: 94,
+        width: 68,
         align: 'right',
         render: (_, row) => `${row.natr.toFixed(2)}%`,
       },
       {
         ...header('correlation', 'Корр 24ч'),
-        width: 106,
+        width: 76,
         align: 'right',
         render: (_, row) =>
           row.correlation === undefined ? (
@@ -150,7 +204,7 @@ export function MarketList({ market, selectedSymbol, onSymbolChange }: MarketLis
           ),
       },
     ];
-  }, [sorting, sortDirection]);
+  }, [favoriteSymbols, sorting, sortDirection]);
 
   const changeSymbol = (symbol: string) => {
     onSymbolChange(symbol);
@@ -159,6 +213,15 @@ export function MarketList({ market, selectedSymbol, onSymbolChange }: MarketLis
 
   return (
     <aside className={styles['market-pane']} aria-label="Список монет">
+      <Tabs
+        className={styles.tabs}
+        activeKey={activeTab}
+        onChange={(key) => setActiveTab(key as 'futures' | 'favorites')}
+        items={[
+          { key: 'futures', label: 'Фьючерсы' },
+          { key: 'favorites', label: `Закладки${favoriteSymbols.size ? ` (${favoriteSymbols.size})` : ''}` },
+        ]}
+      />
       <div className={styles['market-controls']}>
         <Tooltip title="Binance USD-M · бессрочные USDT-фьючерсы">
           <Tag color="gold">Binance Futures</Tag>
@@ -182,7 +245,7 @@ export function MarketList({ market, selectedSymbol, onSymbolChange }: MarketLis
       </div>
       <div className={styles['market-summary']}>
         <span role="status">
-          Показано {rows.length} из {market.length}
+          Показано {rows.length} из {visibleMarket.length}
         </span>
         <span id="correlation-limit">Корреляция: пары с оборотом ≥ $50M за 24ч</span>
       </div>
@@ -196,7 +259,7 @@ export function MarketList({ market, selectedSymbol, onSymbolChange }: MarketLis
           pagination={false}
           virtual
           size="small"
-          scroll={{ x: Math.max(520, viewport.width), y: viewport.height, scrollToFirstRowOnChange: false }}
+          scroll={{ x: Math.max(410, viewport.width), y: viewport.height, scrollToFirstRowOnChange: false }}
           locale={{
             emptyText: (
               <Empty

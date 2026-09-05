@@ -54,12 +54,12 @@
   display: grid;
   min-height: 0;
   flex: 1;
-  grid-template-columns: minmax(0, 1fr) minmax(390px, 560px);
+  grid-template-columns: minmax(0, 1fr) minmax(350px, 440px);
   gap: 10px;
   padding: 10px 12px;
 }
 @media (max-width: 1300px) {
   .terminal-body {
-    grid-template-columns: minmax(0, 1fr) 440px;
+    grid-template-columns: minmax(0, 1fr) 390px;
   }
 }
