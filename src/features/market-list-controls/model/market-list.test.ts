@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { nextMarketListSortState, selectMarketRows } from './market-list';
+import { createMarketListFilters, nextMarketListSortState, selectMarketRows } from './market-list';
 
 describe('market list controls', () => {
   const market = [
@@ -58,6 +58,41 @@ describe('market list controls', () => {
     expect(selectMarketRows(market, '', third.sorting, third.sortDirection, {}, {}, favorites)).toEqual(
       market,
     );
+  });
+
+  it('applies combined inclusive market filters', () => {
+    const rows = [
+      ...market,
+      {
+        symbol: 'SOLUSDT',
+        priceTickSize: '0.01',
+        price: 3,
+        change: 3,
+        range: 3,
+        natr: 3,
+        trades: 3,
+        volume: 30,
+      },
+    ];
+    const filters = createMarketListFilters();
+    filters.volume = { min: 20, max: 30 };
+    filters.change = { min: 0, max: 3 };
+    filters.trades = { min: 2, max: 3 };
+    filters.natr = { min: 2, max: 3 };
+    filters.correlation = { min: 20, max: 20 };
+
+    expect(
+      selectMarketRows(rows, '', null, 'desc', { BTCUSDT: 0.15, SOLUSDT: 0.2 }, {}, new Set(), filters),
+    ).toEqual([rows[2]]);
+  });
+
+  it('keeps correlation filter bounds inclusive and excludes rows without correlation', () => {
+    const filters = createMarketListFilters();
+    filters.correlation = { min: 15, max: 15 };
+
+    expect(selectMarketRows(market, '', null, 'desc', { BTCUSDT: 0.15 }, {}, new Set(), filters)).toEqual([
+      market[0],
+    ]);
   });
 
   it('sorts NATR 5m/14 values in both directions and keeps unavailable values last', () => {

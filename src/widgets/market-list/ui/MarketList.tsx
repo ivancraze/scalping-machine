@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Button,
+  Checkbox,
   Empty,
   Input,
+  InputNumber,
+  Modal,
   Space,
   Spin,
   Table,
@@ -20,6 +23,10 @@ import {
   selectCorrelationSymbols,
   selectMarketRows,
   useMarketListControls,
+  createMarketListFilters,
+  createMarketListColumns,
+  type MarketListColumnKey,
+  type MarketListFilters,
   type MarketListSortKey,
 } from '../../../features/market-list-controls';
 import { compactUsd as compact, percentage as rate } from '../../../shared/lib/format';
@@ -41,14 +48,20 @@ export function MarketList({ market, selectedSymbol, onSymbolChange }: MarketLis
     setActiveTab,
     favoriteSymbols,
     toggleFavorite,
+    filters,
+    visibleColumns,
+    applySettings,
   } = useMarketListControls();
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [draftFilters, setDraftFilters] = useState<MarketListFilters>(filters);
+  const [draftColumns, setDraftColumns] = useState<MarketListColumnKey[]>([...visibleColumns]);
   const [viewport, setViewport] = useState({ width: 520, height: 400 });
   const viewportRef = useRef<HTMLDivElement>(null);
   const tableRef = useRef<TableRef>(null);
 
   useEffect(() => {
     tableRef.current?.scrollTo({ top: 0 });
-  }, [activeTab, favoriteSymbols, query, sorting, sortDirection]);
+  }, [activeTab, favoriteSymbols, filters, query, sorting, sortDirection]);
 
   useEffect(() => {
     const container = viewportRef.current;
@@ -83,8 +96,17 @@ export function MarketList({ market, selectedSymbol, onSymbolChange }: MarketLis
   const natrs = natrsQuery.data ?? EMPTY_CORRELATIONS;
   const rows = useMemo(
     () =>
-      selectMarketRows(visibleMarket, query, sorting, sortDirection, correlations, natrs, favoriteSymbols),
-    [correlations, favoriteSymbols, natrs, query, sortDirection, sorting, visibleMarket],
+      selectMarketRows(
+        visibleMarket,
+        query,
+        sorting,
+        sortDirection,
+        correlations,
+        natrs,
+        favoriteSymbols,
+        filters,
+      ),
+    [correlations, favoriteSymbols, filters, natrs, query, sortDirection, sorting, visibleMarket],
   );
   const tableRows = useMemo<MarketTableRow[]>(() => {
     const eligible = new Set(correlationSymbols);
@@ -129,7 +151,7 @@ export function MarketList({ market, selectedSymbol, onSymbolChange }: MarketLis
             : ('none' as const),
       }),
     });
-    return [
+    const allColumns: TableColumnsType<MarketTableRow> = [
       {
         ...header('favorite', ' '),
         width: 44,
@@ -175,6 +197,12 @@ export function MarketList({ market, selectedSymbol, onSymbolChange }: MarketLis
         ),
       },
       {
+        ...header('trades', 'Сделки'),
+        width: 64,
+        align: 'right' as const,
+        render: (_: unknown, row: MarketTableRow) => compact(row.trades),
+      },
+      {
         ...header('natr', 'Вол. 24'),
         width: 60,
         align: 'right',
@@ -213,12 +241,34 @@ export function MarketList({ market, selectedSymbol, onSymbolChange }: MarketLis
           ),
       },
     ];
-  }, [favoriteSymbols, setSortDirection, setSorting, sortDirection, sorting, toggleFavorite]);
+    return allColumns.filter(
+      (column) =>
+        column.key === 'favorite' ||
+        column.key === 'symbol' ||
+        visibleColumns.has(column.key as MarketListColumnKey),
+    );
+  }, [favoriteSymbols, setSortDirection, setSorting, sortDirection, sorting, toggleFavorite, visibleColumns]);
 
   const changeSymbol = (symbol: string) => {
     onSymbolChange(symbol);
     setQuery('');
   };
+
+  const filterFields: Array<{ key: keyof MarketListFilters; label: string; suffix?: string }> = [
+    { key: 'volume', label: 'Объём 24ч', suffix: 'USDT' },
+    { key: 'change', label: 'Изм. 24ч', suffix: '%' },
+    { key: 'trades', label: 'Кол-во сделок' },
+    { key: 'correlation', label: 'Корр. BTC', suffix: '%' },
+    { key: 'natr', label: 'Волатильность 24ч', suffix: '%' },
+  ];
+  const columnFields: Array<{ key: MarketListColumnKey; label: string }> = [
+    { key: 'volume', label: 'Объём 24ч' },
+    { key: 'change', label: 'Изм. 24ч' },
+    { key: 'trades', label: 'Кол-во сделок' },
+    { key: 'correlation', label: 'Корр. BTC' },
+    { key: 'natr', label: 'Волатильность 24ч' },
+    { key: 'natr5m14', label: 'NATR 5/14' },
+  ];
 
   return (
     <aside className={styles['market-pane']} aria-label="Список монет">
@@ -244,14 +294,102 @@ export function MarketList({ market, selectedSymbol, onSymbolChange }: MarketLis
           allowClear
         />
         <Space size={4}>
-          <Tooltip title="Пресеты и фильтры — пока недоступны">
-            <Button disabled icon={<FilterOutlined />} aria-label="Пресеты и фильтры" />
+          <Tooltip title="Настройки и фильтры списка">
+            <Button
+              icon={<FilterOutlined />}
+              aria-label="Настройки и фильтры списка"
+              onClick={() => {
+                setDraftFilters(filters);
+                setDraftColumns([...visibleColumns]);
+                setIsSettingsOpen(true);
+              }}
+            />
           </Tooltip>
           <Tooltip title="Ручное обновление — пока недоступно">
             <Button disabled icon={<ReloadOutlined />} aria-label="Обновить список" />
           </Tooltip>
         </Space>
       </div>
+      <Modal
+        title="Настройки списка"
+        open={isSettingsOpen}
+        onCancel={() => setIsSettingsOpen(false)}
+        footer={[
+          <Button
+            key="reset"
+            onClick={() => {
+              setDraftFilters(createMarketListFilters());
+              setDraftColumns(createMarketListColumns());
+            }}
+          >
+            Сбросить
+          </Button>,
+          <Button
+            key="apply"
+            type="primary"
+            onClick={() => {
+              applySettings(draftFilters, draftColumns);
+              setIsSettingsOpen(false);
+            }}
+          >
+            Применить
+          </Button>,
+        ]}
+      >
+        <section className={styles['settings-section']}>
+          <h3>Колонки</h3>
+          <div className={styles['column-fields']}>
+            {columnFields.map(({ key, label }) => (
+              <Checkbox
+                key={key}
+                checked={draftColumns.includes(key)}
+                onChange={(event) =>
+                  setDraftColumns((current) =>
+                    event.target.checked ? [...current, key] : current.filter((column) => column !== key),
+                  )
+                }
+              >
+                {label}
+              </Checkbox>
+            ))}
+          </div>
+        </section>
+        <section className={styles['settings-section']}>
+          <h3>Фильтры</h3>
+          <p className={styles['settings-description']}>Пустое поле не ограничивает список.</p>
+          <div className={styles['filter-fields']}>
+            {filterFields.map(({ key, label, suffix }) => (
+              <div className={styles['filter-field']} key={key}>
+                <span>{suffix ? `${label} (${suffix})` : label}</span>
+                <Space.Compact>
+                  <InputNumber
+                    aria-label={`${label}: от`}
+                    value={draftFilters[key].min}
+                    placeholder="от"
+                    onChange={(value) =>
+                      setDraftFilters((current) => ({
+                        ...current,
+                        [key]: { ...current[key], min: value },
+                      }))
+                    }
+                  />
+                  <InputNumber
+                    aria-label={`${label}: до`}
+                    value={draftFilters[key].max}
+                    placeholder="до"
+                    onChange={(value) =>
+                      setDraftFilters((current) => ({
+                        ...current,
+                        [key]: { ...current[key], max: value },
+                      }))
+                    }
+                  />
+                </Space.Compact>
+              </div>
+            ))}
+          </div>
+        </section>
+      </Modal>
       <div className={styles['market-summary']}>
         <span role="status">
           Показано {rows.length} из {visibleMarket.length}

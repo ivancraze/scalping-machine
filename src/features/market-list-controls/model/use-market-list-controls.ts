@@ -1,6 +1,7 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { loadFavoriteSymbols, saveFavoriteSymbols } from './favorite-symbol-storage';
-import type { MarketListSortKey } from './market-list';
+import { loadMarketListSettings, saveMarketListSettings } from './market-list-settings-storage';
+import type { MarketListColumnKey, MarketListFilters, MarketListSortKey } from './market-list';
 
 export function useMarketListControls() {
   const [query, setQuery] = useState('');
@@ -8,6 +9,8 @@ export function useMarketListControls() {
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [activeTab, setActiveTab] = useState<'futures' | 'favorites'>('futures');
   const [favoriteSymbols, setFavoriteSymbols] = useState(loadFavoriteSymbols);
+  const [settings, setSettings] = useState(loadMarketListSettings);
+  const visibleColumns = useMemo(() => new Set(settings.columns), [settings.columns]);
 
   const toggleFavorite = useCallback((symbol: string) => {
     setFavoriteSymbols((current) => {
@@ -30,5 +33,28 @@ export function useMarketListControls() {
     setActiveTab,
     favoriteSymbols,
     toggleFavorite,
+    filters: settings.filters,
+    visibleColumns,
+    setFilters: (filters: MarketListFilters) => {
+      setSettings((current) => {
+        const next = { ...current, filters };
+        saveMarketListSettings(next);
+        return next;
+      });
+    },
+    setVisibleColumns: (columns: MarketListColumnKey[]) => {
+      setSettings((current) => {
+        const next = { ...current, columns };
+        saveMarketListSettings(next);
+        return next;
+      });
+    },
+    applySettings: (filters: MarketListFilters, columns: MarketListColumnKey[]) => {
+      setSettings(() => {
+        const next = { filters, columns };
+        saveMarketListSettings(next);
+        return next;
+      });
+    },
   };
 }

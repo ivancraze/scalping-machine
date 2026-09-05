@@ -40,6 +40,40 @@
   color: var(--text-secondary);
   font-size: 11px;
 }
+.settings-description {
+  margin: 0 0 16px;
+  color: var(--text-secondary);
+}
+.settings-section + .settings-section {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border-subtle);
+}
+.settings-section h3 {
+  margin: 0 0 12px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.column-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 16px;
+}
+.filter-fields {
+  display: grid;
+  gap: 12px;
+}
+.filter-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 220px;
+  align-items: center;
+  gap: 16px;
+}
+.filter-field :global(.ant-input-number) {
+  width: 110px;
+}
 .table-viewport {
   min-height: 0;
   flex: 1;
