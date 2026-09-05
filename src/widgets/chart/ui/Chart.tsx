@@ -17,6 +17,7 @@ import {
 import { ChartCanvas } from './ChartCanvas';
 import type { ChartTool, ChartPalette } from '../model/types';
 import { primaryDrawingTools, extraDrawingTools } from '../lib/drawing-tools';
+import { loadChartTimeframe, saveChartTimeframe } from '../lib/timeframe-storage';
 import { timeframes, intervals } from '../lib/timeframes';
 import { compactUsd as compact, percentage as rate } from '../../../shared/lib/format';
 import styles from './Chart.module.scss';
@@ -41,7 +42,7 @@ export function Chart({ symbol, selected }: { symbol: string; selected?: MarketR
       token.colorTextTertiary,
     ],
   );
-  const [timeframe, setTimeframe] = useState('1м');
+  const [timeframe, setTimeframe] = useState(loadChartTimeframe);
   const [drawingTool, setDrawingTool] = useState<ChartTool>(null);
   const [drawingRequest, setDrawingRequest] = useState(0);
   const [resetRequest, setResetRequest] = useState(0);
@@ -79,7 +80,10 @@ export function Chart({ symbol, selected }: { symbol: string; selected?: MarketR
           <Segmented<string>
             aria-label="Таймфрейм"
             value={timeframe}
-            onChange={setTimeframe}
+            onChange={(nextTimeframe) => {
+              setTimeframe(nextTimeframe);
+              saveChartTimeframe(nextTimeframe);
+            }}
             options={timeframes.map((tf) => ({
               value: tf,
               label: tf,
