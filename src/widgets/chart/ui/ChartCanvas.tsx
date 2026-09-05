@@ -9,6 +9,12 @@ import {
 } from 'lightweight-charts';
 import { createLineToolsPlugin, type ILineToolsPlugin } from 'lightweight-charts-line-tools-core';
 import { chartOptions, candleOptions, volumeOptions, volumeScaleMargins } from '../lib/chart-options';
+import {
+  removeSavedLineTools,
+  restoreLineTools,
+  saveLineTools,
+  type LineToolsStorageScope,
+} from '../lib/line-tools-storage';
 import { registerTools } from '../lib/register-tools';
 import { toCandlestick, toVolume, priceFormat } from '../lib/series-data';
 import type { Candle } from '../../../entities/market';
@@ -33,6 +39,8 @@ export function ChartCanvas({
   onLoadNewer,
   onLoadOlder,
   tool,
+  lineToolsStorageScope,
+  resetRequest,
 }: {
   candles: Candle[];
   latestCandles: Candle[];
@@ -49,6 +57,8 @@ export function ChartCanvas({
   onLoadNewer: () => void;
   onLoadOlder: () => void;
   tool: ChartTool;
+  lineToolsStorageScope: LineToolsStorageScope;
+  resetRequest: number;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -61,6 +71,7 @@ export function ChartCanvas({
   const latestCandlesRef = useRef(latestCandles);
   const candlesByTimeRef = useRef(new Map<number, Candle>());
   const lastSeriesOpenTimeRef = useRef<number | null>(null);
+  const displayedLineToolsStorageScopeRef = useRef<LineToolsStorageScope | null>(null);
   const onDrawingCompleteRef = useRef(onDrawingComplete);
   const onCandleChangeRef = useRef(onCandleChange);
   const historyLoadingRef = useRef({
@@ -111,6 +122,8 @@ export function ChartCanvas({
     registerTools(lineTools);
     lineTools.setMagnetThreshold(8);
     lineTools.subscribeLineToolsAfterEdit(({ stage }) => {
+      const scope = displayedLineToolsStorageScopeRef.current;
+      if (scope) saveLineTools(lineTools, scope);
       if (stage === 'lineToolFinished' || stage === 'pathFinished') onDrawingCompleteRef.current();
     });
     const loadHistoryNearEdge = (range: { from: number; to: number } | null) => {
@@ -131,6 +144,8 @@ export function ChartCanvas({
     const removeSelectedOnRightClick = (event: MouseEvent) => {
       event.preventDefault();
       lineTools.removeSelectedLineTools();
+      const scope = displayedLineToolsStorageScopeRef.current;
+      if (scope) saveLineTools(lineTools, scope);
     };
     container.addEventListener('contextmenu', removeSelectedOnRightClick);
     chartRef.current = chart;
@@ -158,6 +173,7 @@ export function ChartCanvas({
       previousCandlesRef.current = [];
       candlesByTimeRef.current.clear();
       lastSeriesOpenTimeRef.current = null;
+      displayedLineToolsStorageScopeRef.current = null;
       setReady(false);
     };
   }, []);
@@ -168,7 +184,7 @@ export function ChartCanvas({
   }, [priceTickSize, ready]);
 
   useEffect(() => {
-    if (!ready || !candleRef.current || !volumeRef.current) return;
+    if (!ready || !candleRef.current || !volumeRef.current || !lineToolsRef.current) return;
     const chart = chartRef.current;
     const keyChanged = displayedDataKeyRef.current !== dataKey;
     if (keyChanged) {
@@ -184,6 +200,11 @@ export function ChartCanvas({
     candlesByTimeRef.current = new Map(candles.map((candle) => [candle[0], candle]));
     candleRef.current.setData(candles.map(toCandlestick));
     volumeRef.current.setData(candles.map(toVolume));
+    if (displayedLineToolsStorageScopeRef.current !== lineToolsStorageScope) {
+      lineToolsRef.current.removeAllLineTools();
+      restoreLineTools(lineToolsRef.current, lineToolsStorageScope);
+      displayedLineToolsStorageScopeRef.current = lineToolsStorageScope;
+    }
     lastSeriesOpenTimeRef.current = candles.at(-1)?.[0] ?? null;
     for (const candle of latestCandlesRef.current) {
       candlesByTimeRef.current.set(candle[0], candle);
@@ -211,7 +232,7 @@ export function ChartCanvas({
         to: visibleRange.to + shift,
       });
     }
-  }, [candles, dataKey, ready]);
+  }, [candles, dataKey, lineToolsStorageScope, ready]);
 
   useEffect(() => {
     if (!ready || !candleRef.current || !volumeRef.current) return;
@@ -228,6 +249,12 @@ export function ChartCanvas({
     if (!tool || !lineToolsRef.current) return;
     lineToolsRef.current.addLineTool(tool);
   }, [drawingRequest, tool]);
+
+  useEffect(() => {
+    if (!ready || resetRequest === 0 || !lineToolsRef.current) return;
+    lineToolsRef.current.removeAllLineTools();
+    removeSavedLineTools(lineToolsStorageScope);
+  }, [lineToolsStorageScope, ready, resetRequest]);
 
   return (
     <div

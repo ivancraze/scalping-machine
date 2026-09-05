@@ -23,11 +23,16 @@ export function Chart({ symbol, selected }: { symbol: string; selected?: MarketR
   });
   const [drawingTool, setDrawingTool] = useState<ChartTool>(null);
   const [drawingRequest, setDrawingRequest] = useState(0);
+  const [resetRequest, setResetRequest] = useState(0);
   const [isToolsOpen, setIsToolsOpen] = useState(false);
   const [inspectedCandle, setInspectedCandle] = useState<{ dataKey: string; candle: Candle } | null>(null);
   const interval = intervals[timeframe];
   const secondsPerCandle = interval.endsWith('s') ? Number.parseInt(interval, 10) : null;
   const dataKey = `${symbol}:${interval}`;
+  const lineToolsStorageScope = useMemo(
+    () => ({ exchange: 'binance-usdm', symbol, interval }),
+    [interval, symbol],
+  );
   const candleHistory = useCandleHistoryQuery(symbol, secondsPerCandle ? '1m' : interval);
   const includesCurrentEnd = Boolean(candleHistory.data?.pages.some((page) => page.reachesNewerEnd));
   const latestCandles = useLatestCandlesQuery(symbol, secondsPerCandle ? '1m' : interval, includesCurrentEnd);
@@ -141,6 +146,16 @@ export function Chart({ symbol, selected }: { symbol: string; selected?: MarketR
         <button onClick={() => setIsToolsOpen((current) => !current)} title="Все инструменты">
           ⋯
         </button>
+        <button
+          onClick={() => {
+            if (!window.confirm('Удалить все объекты для текущего графика?')) return;
+            setDrawingTool(null);
+            setResetRequest((current) => current + 1);
+          }}
+          title="Сбросить объекты"
+        >
+          ⌫
+        </button>
         {isToolsOpen && (
           <div className={styles['drawing-tools-menu']}>
             {extraDrawingTools.map(({ tool, title }) => (
@@ -197,6 +212,8 @@ export function Chart({ symbol, selected }: { symbol: string; selected?: MarketR
               void candleHistory.fetchNextPage({ cancelRefetch: false });
           }}
           onDrawingComplete={() => setDrawingTool(null)}
+          lineToolsStorageScope={lineToolsStorageScope}
+          resetRequest={resetRequest}
         />
         {!secondsPerCandle && candleHistory.isPending && (
           <div className={styles['query-status']}>Загрузка свечей…</div>
