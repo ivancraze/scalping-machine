@@ -1,5 +1,10 @@
-import { useEffect, useState } from 'react';
-import { getCandles, type MarketRow } from '../../../entities/market';
+import { useMemo, useState } from 'react';
+import {
+  mergeCandlePages,
+  useCandleHistoryQuery,
+  useLatestCandlesQuery,
+  type MarketRow,
+} from '../../../entities/market';
 import { ChartCanvas } from './ChartCanvas';
 import type { ChartTool } from '../model/types';
 import { primaryDrawingTools, extraDrawingTools } from '../lib/drawing-tools';
@@ -13,24 +18,14 @@ import styles from './Chart.module.scss';
 
 export function Chart({ symbol, selected }: { symbol: string; selected?: MarketRow }) {
   const [timeframe, setTimeframe] = useState('1м');
-  const [candles, setCandles] = useState<Array<[number, string, string, string, string, string]>>([]);
   const [drawingTool, setDrawingTool] = useState<ChartTool>(null);
   const [drawingRequest, setDrawingRequest] = useState(0);
   const [isToolsOpen, setIsToolsOpen] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    getCandles(symbol, intervals[timeframe])
-      .then((data) => {
-        if (!cancelled) setCandles(data);
-      })
-      .catch(() => {
-        if (!cancelled) setCandles([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [symbol, timeframe]);
+  const interval = intervals[timeframe];
+  const candleHistory = useCandleHistoryQuery(symbol, interval);
+  const includesCurrentEnd = Boolean(candleHistory.data?.pages.some((page) => page.reachesNewerEnd));
+  const latestCandles = useLatestCandlesQuery(symbol, interval, includesCurrentEnd);
+  const candles = useMemo(() => mergeCandlePages(candleHistory.data?.pages), [candleHistory.data?.pages]);
   const startDrawing = (tool: ChartTool) => {
     setDrawingTool(tool);
     setDrawingRequest((current) => current + 1);
@@ -132,13 +127,48 @@ export function Chart({ symbol, selected }: { symbol: string; selected?: MarketR
       <div className={styles['main-chart']}>
         <ChartCanvas
           candles={candles}
-          symbol={symbol}
+          latestCandles={includesCurrentEnd ? (latestCandles.data ?? []) : []}
+          dataKey={`${symbol}:${interval}`}
           priceTickSize={selected?.priceTickSize}
           drawingRequest={drawingRequest}
           isDrawingMenuOpen={isToolsOpen}
           tool={drawingTool}
+          canLoadNewer={Boolean(candleHistory.hasPreviousPage)}
+          canLoadOlder={Boolean(candleHistory.hasNextPage)}
+          isLoadingNewer={candleHistory.isFetchingPreviousPage}
+          isLoadingOlder={candleHistory.isFetchingNextPage}
+          onLoadNewer={() => {
+            if (candleHistory.hasPreviousPage && !candleHistory.isFetching)
+              void candleHistory.fetchPreviousPage({ cancelRefetch: false });
+          }}
+          onLoadOlder={() => {
+            if (candleHistory.hasNextPage && !candleHistory.isFetching)
+              void candleHistory.fetchNextPage({ cancelRefetch: false });
+          }}
           onDrawingComplete={() => setDrawingTool(null)}
         />
+        {candleHistory.isPending && <div className={styles['query-status']}>Загрузка свечей…</div>}
+        {(candleHistory.isFetchingNextPage || candleHistory.isFetchingPreviousPage) && (
+          <div className={styles['query-status']}>Загрузка истории…</div>
+        )}
+        {(candleHistory.isError ||
+          candleHistory.isFetchNextPageError ||
+          candleHistory.isFetchPreviousPageError) && (
+          <div className={`${styles['query-status']} ${styles['query-error']}`}>
+            Не удалось загрузить свечи
+            <button
+              onClick={() => {
+                if (candleHistory.isFetchNextPageError)
+                  void candleHistory.fetchNextPage({ cancelRefetch: false });
+                else if (candleHistory.isFetchPreviousPageError)
+                  void candleHistory.fetchPreviousPage({ cancelRefetch: false });
+                else void candleHistory.refetch();
+              }}
+            >
+              Повторить
+            </button>
+          </div>
+        )}
       </div>
     </section>
   );

@@ -1,4 +1,5 @@
 export type SortKey = 'change' | 'losers' | 'trades' | 'natr' | 'volume';
+export type Candle = [number, string, string, string, string, string];
 export type MarketRow = {
   symbol: string;
   priceTickSize: string;

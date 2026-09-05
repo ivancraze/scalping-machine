@@ -16,7 +16,9 @@
     "check": "npm run lint && npm run stylelint && npm run format:check && npm run build"
   },
   "dependencies": {
+    "@tanstack/react-query": "^5.102.8",
     "@vitejs/plugin-react": "latest",
+    "axios": "^1.20.0",
     "lightweight-charts": "^5.2.1",
     "lightweight-charts-line-tools-circle": "github:difurious/lightweight-charts-line-tools-circle",
     "lightweight-charts-line-tools-core": "github:difurious/lightweight-charts-line-tools-core",

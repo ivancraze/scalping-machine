@@ -1,63 +1,40 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { getCandles, getMarket, pearson, returnsFrom, type MarketRow } from '../../../entities/market';
+import { useCorrelationsQuery, useMarketQuery, type MarketRow } from '../../../entities/market';
 import { compactUsd as compact, percentage as rate } from '../../../shared/lib/format';
 import { selectMarketRows, sortMark, type SortKey } from '../lib/market-list';
 import { Chart } from '../../../widgets/chart';
 import styles from './MarketTerminalPage.module.scss';
 
+const EMPTY_MARKET: MarketRow[] = [];
+const EMPTY_CORRELATIONS: Record<string, number> = {};
+
 export default function MarketTerminalPage() {
-  const [market, setMarket] = useState<MarketRow[]>([]);
   const [symbol, setSymbol] = useState('BTCUSDT');
   const [query, setQuery] = useState('');
   const [sorting, setSorting] = useState<SortKey>('change');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
-  const [correlations, setCorrelations] = useState<Record<string, number>>({});
   const marketListRef = useRef<HTMLDivElement>(null);
+  const marketQuery = useMarketQuery();
+  const market = marketQuery.data ?? EMPTY_MARKET;
   const selected = market.find((x) => x.symbol === symbol);
 
   useEffect(() => {
     if (marketListRef.current) marketListRef.current.scrollTop = 0;
   }, [query, sorting, sortDirection]);
 
-  useEffect(() => {
-    const load = () =>
-      getMarket()
-        .then(setMarket)
-        .catch(() => setMarket([]));
-    load();
-    const id = window.setInterval(load, 30_000);
-    return () => window.clearInterval(id);
-  }, []);
-  useEffect(() => {
-    if (sorting !== 'correlation' || !market.length) return;
-    let cancelled = false;
-    const symbols = market
-      .filter((row) => row.symbol.includes(query.toUpperCase()))
-      .slice(0, 30)
-      .map((row) => row.symbol);
-    const missing = symbols.filter((item) => item !== 'BTCUSDT' && correlations[item] === undefined);
-    if (!missing.length) return;
-    const load = async () => {
-      const bitcoin = await getCandles('BTCUSDT', '1h');
-      const btcReturns = returnsFrom(bitcoin);
-      const items = await Promise.all(
-        missing.map(async (item) => {
-          const history = await getCandles(item, '1h');
-          return [item, pearson(returnsFrom(history), btcReturns)] as const;
-        }),
-      );
-      if (!cancelled)
-        setCorrelations((current) => ({
-          ...current,
-          BTCUSDT: 1,
-          ...Object.fromEntries(items.filter(([, value]) => value !== null)),
-        }));
-    };
-    load().catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, [correlations, market, query, sorting]);
+  const correlationSymbols = useMemo(
+    () =>
+      market
+        .filter((row) => row.symbol.includes(query.toUpperCase()))
+        .slice(0, 30)
+        .map((row) => row.symbol),
+    [market, query],
+  );
+  const correlationsQuery = useCorrelationsQuery(
+    correlationSymbols,
+    sorting === 'correlation' && correlationSymbols.length > 0,
+  );
+  const correlations = correlationsQuery.data ?? EMPTY_CORRELATIONS;
   const rows = useMemo(
     () => selectMarketRows(market, query, sorting, sortDirection, correlations),
     [correlations, market, query, sortDirection, sorting],

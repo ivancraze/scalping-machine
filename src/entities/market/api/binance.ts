@@ -1,8 +1,7 @@
-import type { DepthLevel, MarketRow } from '../model/types';
+import { binanceHttpClient, throwRequestError } from '../../../shared/api/http-client';
+import type { Candle, DepthLevel, MarketRow } from '../model/types';
 
-// Public USD-M market data; no API key or signed requests.
-const API = 'https://fapi.binance.com/fapi/v1';
-const asNumber = (v: string | number) => Number(v);
+const asNumber = (value: string | number) => Number(value);
 
 type FuturesSymbol = {
   symbol: string;
@@ -12,17 +11,22 @@ type FuturesSymbol = {
   marginAsset: string;
   filters: Array<{ filterType: string; tickSize?: string }>;
 };
-let instruments: { symbols: Map<string, string>; expiresAt: number } | undefined;
-let instrumentsRequest: Promise<Map<string, string>> | undefined;
 
-async function getInstruments(): Promise<Map<string, string>> {
-  if (instruments && instruments.expiresAt > Date.now()) return instruments.symbols;
-  if (instrumentsRequest) return instrumentsRequest;
-  instrumentsRequest = (async () => {
-    const response = await fetch(`${API}/exchangeInfo`);
-    if (!response.ok) throw new Error('Binance Futures instruments unavailable');
-    const data: { symbols: FuturesSymbol[] } = await response.json();
-    const symbols = new Map<string, string>(
+type MarketTicker = Record<string, string>;
+type BinanceCandle = [number, string, string, string, string, string, ...unknown[]];
+export type Instruments = Record<string, string>;
+
+export type CandleRequest = {
+  limit?: number;
+  startTime?: number;
+  endTime?: number;
+  signal?: AbortSignal;
+};
+
+export async function getInstruments(signal?: AbortSignal): Promise<Instruments> {
+  try {
+    const { data } = await binanceHttpClient.get<{ symbols: FuturesSymbol[] }>('/exchangeInfo', { signal });
+    return Object.fromEntries(
       data.symbols
         .filter(
           (item) =>
@@ -34,69 +38,81 @@ async function getInstruments(): Promise<Map<string, string>> {
         .map((item) => {
           const tickSize = item.filters.find((filter) => filter.filterType === 'PRICE_FILTER')?.tickSize;
           if (!tickSize || !Number.isFinite(Number(tickSize)) || Number(tickSize) <= 0)
-            throw new Error('Binance Futures price tick unavailable');
+            throw new Error('Invalid Binance price tick');
           return [item.symbol, tickSize];
         }),
     );
-    instruments = { symbols, expiresAt: Date.now() + 5 * 60_000 };
-    return symbols;
-  })();
-  try {
-    return await instrumentsRequest;
-  } finally {
-    instrumentsRequest = undefined;
+  } catch (error) {
+    throwRequestError(error, 'Binance Futures instruments unavailable');
   }
 }
 
-export async function getMarket(): Promise<MarketRow[]> {
-  const symbols = await getInstruments();
-  const response = await fetch(`${API}/ticker/24hr`);
-  if (!response.ok) throw new Error('Binance API unavailable');
-  const data: Array<Record<string, string>> = await response.json();
-  return data
-    .filter((x) => symbols.has(x.symbol))
-    .map((x) => {
-      const price = asNumber(x.lastPrice),
-        high = asNumber(x.highPrice),
-        low = asNumber(x.lowPrice);
-      return {
-        symbol: x.symbol,
-        priceTickSize: symbols.get(x.symbol)!,
-        price,
-        change: asNumber(x.priceChangePercent),
-        range: (high / low) * 100 - 100,
-        natr: ((high - low) / price) * 100,
-        trades: asNumber(x.count),
-        volume: asNumber(x.quoteVolume),
-      };
-    });
+export async function getMarket(instruments: Instruments, signal?: AbortSignal): Promise<MarketRow[]> {
+  try {
+    const { data } = await binanceHttpClient.get<MarketTicker[]>('/ticker/24hr', { signal });
+    return data
+      .filter((item) => instruments[item.symbol] !== undefined)
+      .map((item) => {
+        const price = asNumber(item.lastPrice);
+        const high = asNumber(item.highPrice);
+        const low = asNumber(item.lowPrice);
+        return {
+          symbol: item.symbol,
+          priceTickSize: instruments[item.symbol],
+          price,
+          change: asNumber(item.priceChangePercent),
+          range: (high / low) * 100 - 100,
+          natr: ((high - low) / price) * 100,
+          trades: asNumber(item.count),
+          volume: asNumber(item.quoteVolume),
+        };
+      });
+  } catch (error) {
+    throwRequestError(error, 'Binance market unavailable');
+  }
 }
 
-export async function getCandles(symbol: string, interval = '1m') {
-  const response = await fetch(
-    `${API}/klines?symbol=${encodeURIComponent(symbol)}&interval=${encodeURIComponent(interval)}&limit=72`,
-  );
-  if (!response.ok) throw new Error('Candles unavailable');
-  return response.json() as Promise<Array<[number, string, string, string, string, string]>>;
+export async function getCandles(
+  symbol: string,
+  interval = '1m',
+  { limit = 72, startTime, endTime, signal }: CandleRequest = {},
+): Promise<Candle[]> {
+  try {
+    const { data } = await binanceHttpClient.get<BinanceCandle[]>('/klines', {
+      params: { symbol, interval, limit, startTime, endTime },
+      signal,
+    });
+    return data.map((item) => [item[0], item[1], item[2], item[3], item[4], item[5]]);
+  } catch (error) {
+    throwRequestError(error, 'Candles unavailable');
+  }
 }
 
 export async function getDepth(
   symbol: string,
   minNotional: number,
   distance: number,
+  signal?: AbortSignal,
 ): Promise<{ mid: number; levels: DepthLevel[] }> {
-  const response = await fetch(`${API}/depth?symbol=${symbol}&limit=500`);
-  if (!response.ok) throw new Error('Order book unavailable');
-  const data: { bids: [string, string][]; asks: [string, string][] } = await response.json();
-  const mid = (asNumber(data.bids[0][0]) + asNumber(data.asks[0][0])) / 2;
-  const parse = (side: 'bid' | 'ask', list: [string, string][]) =>
-    list
-      .map(([price, quantity]) => ({
-        price: asNumber(price),
-        quantity: asNumber(quantity),
-        notional: asNumber(price) * asNumber(quantity),
-        side,
-      }))
-      .filter((x) => x.notional >= minNotional && Math.abs((x.price / mid - 1) * 100) <= distance);
-  return { mid, levels: [...parse('ask', data.asks), ...parse('bid', data.bids)] };
+  try {
+    const { data } = await binanceHttpClient.get<{ bids: [string, string][]; asks: [string, string][] }>(
+      '/depth',
+      { params: { symbol, limit: 500 }, signal },
+    );
+    const mid = (asNumber(data.bids[0][0]) + asNumber(data.asks[0][0])) / 2;
+    const parse = (side: 'bid' | 'ask', list: [string, string][]) =>
+      list
+        .map(([price, quantity]) => ({
+          price: asNumber(price),
+          quantity: asNumber(quantity),
+          notional: asNumber(price) * asNumber(quantity),
+          side,
+        }))
+        .filter(
+          (level) => level.notional >= minNotional && Math.abs((level.price / mid - 1) * 100) <= distance,
+        );
+    return { mid, levels: [...parse('ask', data.asks), ...parse('bid', data.bids)] };
+  } catch (error) {
+    throwRequestError(error, 'Order book unavailable');
+  }
 }

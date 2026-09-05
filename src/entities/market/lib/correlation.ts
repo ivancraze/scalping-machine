@@ -11,6 +11,7 @@ export function pearson(left: number[], right: number[]) {
   return leftVariance && rightVariance ? numerator / Math.sqrt(leftVariance * rightVariance) : null;
 }
 
-export function returnsFrom(candles: Array<[number, string, string, string, string, string]>) {
+export function returnsFrom(candles: Candle[]) {
   return candles.slice(1).map((candle, index) => Number(candle[4]) / Number(candles[index][4]) - 1);
 }
+import type { Candle } from '../model/types';

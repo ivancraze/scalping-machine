@@ -1,16 +1,23 @@
 import {
   ColorType,
+  CrosshairMode,
   type ChartOptions,
   type DeepPartial,
   type CandlestickSeriesPartialOptions,
   type HistogramSeriesPartialOptions,
 } from 'lightweight-charts';
+import { localTickMarkFormatter, localTimeFormatter } from './time-format';
 export const chartOptions: DeepPartial<ChartOptions> = {
   layout: { background: { type: ColorType.Solid, color: '#0c0d14' }, textColor: '#a9adba', fontSize: 11 },
   grid: { vertLines: { color: '#181b26' }, horzLines: { color: '#181b26' } },
   rightPriceScale: { borderColor: '#2a2c37' },
-  timeScale: { borderColor: '#2a2c37', timeVisible: true },
-  crosshair: { vertLine: { color: '#68657966' }, horzLine: { color: '#68657966' } },
+  localization: { timeFormatter: localTimeFormatter },
+  timeScale: { borderColor: '#2a2c37', timeVisible: true, tickMarkFormatter: localTickMarkFormatter },
+  crosshair: {
+    mode: CrosshairMode.Normal,
+    vertLine: { color: '#68657966' },
+    horzLine: { color: '#68657966' },
+  },
   handleScroll: true,
   handleScale: true,
 };

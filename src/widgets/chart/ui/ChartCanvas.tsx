@@ -11,27 +11,41 @@ import { createLineToolsPlugin, type ILineToolsPlugin } from 'lightweight-charts
 import { chartOptions, candleOptions, volumeOptions, volumeScaleMargins } from '../lib/chart-options';
 import { registerTools } from '../lib/register-tools';
 import { toCandlestick, toVolume, priceFormat } from '../lib/series-data';
+import type { Candle } from '../../../entities/market';
 import type { ChartTool } from '../model/types';
 import styles from './ChartCanvas.module.scss';
 
-type Candle = [number, string, string, string, string, string];
 type CandleSeries = ISeriesApi<'Candlestick', Time>;
 type VolumeSeries = ISeriesApi<'Histogram', Time>;
 export function ChartCanvas({
   candles,
-  symbol,
+  latestCandles,
+  dataKey,
   priceTickSize,
   drawingRequest,
   isDrawingMenuOpen,
   onDrawingComplete,
+  canLoadNewer,
+  canLoadOlder,
+  isLoadingNewer,
+  isLoadingOlder,
+  onLoadNewer,
+  onLoadOlder,
   tool,
 }: {
   candles: Candle[];
-  symbol: string;
+  latestCandles: Candle[];
+  dataKey: string;
   priceTickSize?: string;
   drawingRequest: number;
   isDrawingMenuOpen: boolean;
   onDrawingComplete: () => void;
+  canLoadNewer: boolean;
+  canLoadOlder: boolean;
+  isLoadingNewer: boolean;
+  isLoadingOlder: boolean;
+  onLoadNewer: () => void;
+  onLoadOlder: () => void;
   tool: ChartTool;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -39,13 +53,40 @@ export function ChartCanvas({
   const candleRef = useRef<CandleSeries | null>(null);
   const volumeRef = useRef<VolumeSeries | null>(null);
   const lineToolsRef = useRef<ILineToolsPlugin | null>(null);
-  const displayedSymbolRef = useRef<string | null>(null);
+  const displayedDataKeyRef = useRef<string | null>(null);
+  const hasInitialRangeRef = useRef(false);
+  const previousCandlesRef = useRef<Candle[]>([]);
+  const latestCandlesRef = useRef(latestCandles);
+  const lastSeriesOpenTimeRef = useRef<number | null>(null);
   const onDrawingCompleteRef = useRef(onDrawingComplete);
+  const historyLoadingRef = useRef({
+    canLoadNewer,
+    canLoadOlder,
+    isLoadingNewer,
+    isLoadingOlder,
+    onLoadNewer,
+    onLoadOlder,
+  });
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
     onDrawingCompleteRef.current = onDrawingComplete;
   }, [onDrawingComplete]);
+
+  useEffect(() => {
+    latestCandlesRef.current = latestCandles;
+  }, [latestCandles]);
+
+  useEffect(() => {
+    historyLoadingRef.current = {
+      canLoadNewer,
+      canLoadOlder,
+      isLoadingNewer,
+      isLoadingOlder,
+      onLoadNewer,
+      onLoadOlder,
+    };
+  }, [canLoadNewer, canLoadOlder, isLoadingNewer, isLoadingOlder, onLoadNewer, onLoadOlder]);
 
   useLayoutEffect(() => {
     const container = containerRef.current;
@@ -64,6 +105,15 @@ export function ChartCanvas({
     lineTools.subscribeLineToolsAfterEdit(({ stage }) => {
       if (stage === 'lineToolFinished' || stage === 'pathFinished') onDrawingCompleteRef.current();
     });
+    const loadHistoryNearEdge = (range: { from: number; to: number } | null) => {
+      if (!range) return;
+      const bars = candleSeries.barsInLogicalRange(range);
+      if (!bars) return;
+      const loading = historyLoadingRef.current;
+      if (bars.barsBefore < 100 && loading.canLoadOlder && !loading.isLoadingOlder) loading.onLoadOlder();
+      if (bars.barsAfter < 100 && loading.canLoadNewer && !loading.isLoadingNewer) loading.onLoadNewer();
+    };
+    chart.timeScale().subscribeVisibleLogicalRangeChange(loadHistoryNearEdge);
     const removeSelectedOnRightClick = (event: MouseEvent) => {
       event.preventDefault();
       lineTools.removeSelectedLineTools();
@@ -81,13 +131,17 @@ export function ChartCanvas({
     return () => {
       observer.disconnect();
       container.removeEventListener('contextmenu', removeSelectedOnRightClick);
+      chart.timeScale().unsubscribeVisibleLogicalRangeChange(loadHistoryNearEdge);
       lineTools.destroy();
       chart.remove();
       chartRef.current = null;
       candleRef.current = null;
       volumeRef.current = null;
       lineToolsRef.current = null;
-      displayedSymbolRef.current = null;
+      displayedDataKeyRef.current = null;
+      hasInitialRangeRef.current = false;
+      previousCandlesRef.current = [];
+      lastSeriesOpenTimeRef.current = null;
       setReady(false);
     };
   }, []);
@@ -99,15 +153,57 @@ export function ChartCanvas({
 
   useEffect(() => {
     if (!ready || !candleRef.current || !volumeRef.current) return;
-    if (displayedSymbolRef.current !== symbol) {
-      // Manual price scaling belongs to the previous instrument's price range.
+    const chart = chartRef.current;
+    const keyChanged = displayedDataKeyRef.current !== dataKey;
+    if (keyChanged) {
+      // Manual scaling and visible range belong to the previous instrument or interval.
       candleRef.current.priceScale().applyOptions({ autoScale: true });
-      displayedSymbolRef.current = symbol;
+      displayedDataKeyRef.current = dataKey;
+      hasInitialRangeRef.current = false;
+      previousCandlesRef.current = [];
+      lastSeriesOpenTimeRef.current = null;
     }
+    const visibleRange = keyChanged ? null : chart?.timeScale().getVisibleLogicalRange();
+    const previousCandles = previousCandlesRef.current;
     candleRef.current.setData(candles.map(toCandlestick));
     volumeRef.current.setData(candles.map(toVolume));
-    chartRef.current?.timeScale().fitContent();
-  }, [candles, ready, symbol]);
+    lastSeriesOpenTimeRef.current = candles.at(-1)?.[0] ?? null;
+    for (const candle of latestCandlesRef.current) {
+      if (lastSeriesOpenTimeRef.current !== null && candle[0] < lastSeriesOpenTimeRef.current) continue;
+      candleRef.current.update(toCandlestick(candle));
+      volumeRef.current.update(toVolume(candle));
+      lastSeriesOpenTimeRef.current = candle[0];
+    }
+    previousCandlesRef.current = candles;
+    if (!chart || candles.length === 0) return;
+    if (!hasInitialRangeRef.current) {
+      const to = candles.length - 1;
+      chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, candles.length - 100), to });
+      hasInitialRangeRef.current = true;
+    } else if (visibleRange) {
+      const previousAnchorIndex = Math.min(
+        previousCandles.length - 1,
+        Math.max(0, Math.floor(visibleRange.from)),
+      );
+      const anchorTime = previousCandles[previousAnchorIndex]?.[0];
+      const nextAnchorIndex = candles.findIndex((candle) => candle[0] === anchorTime);
+      const shift = nextAnchorIndex >= 0 ? nextAnchorIndex - previousAnchorIndex : 0;
+      chart.timeScale().setVisibleLogicalRange({
+        from: visibleRange.from + shift,
+        to: visibleRange.to + shift,
+      });
+    }
+  }, [candles, dataKey, ready]);
+
+  useEffect(() => {
+    if (!ready || !candleRef.current || !volumeRef.current) return;
+    for (const candle of latestCandles) {
+      if (lastSeriesOpenTimeRef.current !== null && candle[0] < lastSeriesOpenTimeRef.current) continue;
+      candleRef.current.update(toCandlestick(candle));
+      volumeRef.current.update(toVolume(candle));
+      lastSeriesOpenTimeRef.current = candle[0];
+    }
+  }, [dataKey, latestCandles, ready]);
 
   useEffect(() => {
     if (!tool || !lineToolsRef.current) return;

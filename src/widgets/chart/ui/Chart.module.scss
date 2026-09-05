@@ -148,6 +148,28 @@
   position: absolute;
   inset: 31px 0 0 30px;
 }
+.query-status {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 3;
+  padding: 5px 8px;
+  border: 1px solid #303242;
+  border-radius: 5px;
+  background: #171822e6;
+  color: #b8b9c4;
+  font-size: 11px;
+}
+.query-error {
+  color: #ed7892;
+}
+.query-status button {
+  margin-left: 8px;
+  border: 0;
+  background: transparent;
+  color: #c4aaff;
+  cursor: pointer;
+}
 .chart-canvas {
   width: 100%;
   height: 100%;

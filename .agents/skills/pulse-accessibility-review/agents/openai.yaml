@@ -1,0 +1,7 @@
+interface:
+  display_name: 'Pulse Accessibility Review'
+  short_description: 'Аудит доступности интерфейса и графика'
+  default_prompt: 'Используй $pulse-accessibility-review, чтобы проверить доступность выбранного сценария Pulse Terminal.'
+
+policy:
+  allow_implicit_invocation: true

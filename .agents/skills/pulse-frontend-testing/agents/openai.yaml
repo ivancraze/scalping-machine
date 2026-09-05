@@ -1,0 +1,7 @@
+interface:
+  display_name: 'Pulse Frontend Testing'
+  short_description: 'Тесты React, hooks и преобразований данных'
+  default_prompt: 'Используй $pulse-frontend-testing, чтобы спроектировать или добавить проверяемые frontend-тесты Pulse Terminal.'
+
+policy:
+  allow_implicit_invocation: true

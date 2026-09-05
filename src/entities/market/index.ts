@@ -1,3 +1,11 @@
-export type { AlertRule, DepthLevel, MarketRow } from './model/types';
-export { getCandles, getDepth, getMarket } from './api/binance';
+export type { AlertRule, Candle, DepthLevel, MarketRow } from './model/types';
+export {
+  depthQueryOptions,
+  marketQueryKeys,
+  mergeCandlePages,
+  useCandleHistoryQuery,
+  useLatestCandlesQuery,
+  useCorrelationsQuery,
+  useMarketQuery,
+} from './api/queries';
 export { pearson, returnsFrom } from './lib/correlation';

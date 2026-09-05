@@ -1,0 +1,7 @@
+interface:
+  display_name: 'Pulse React Feature'
+  short_description: 'React-фичи Pulse Terminal с FSD и TypeScript'
+  default_prompt: 'Используй $pulse-react-feature, чтобы реализовать React-фичу в текущей архитектуре Pulse Terminal.'
+
+policy:
+  allow_implicit_invocation: true

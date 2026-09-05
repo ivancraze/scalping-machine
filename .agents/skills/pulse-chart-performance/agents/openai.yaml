@@ -1,0 +1,7 @@
+interface:
+  display_name: 'Pulse Chart Performance'
+  short_description: 'График, realtime-данные и производительность'
+  default_prompt: 'Используй $pulse-chart-performance, чтобы проверить или изменить график Pulse Terminal без регрессий производительности.'
+
+policy:
+  allow_implicit_invocation: true
