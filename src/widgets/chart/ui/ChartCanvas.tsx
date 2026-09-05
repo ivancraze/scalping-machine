@@ -8,7 +8,13 @@ import {
   type Time,
 } from 'lightweight-charts';
 import { createLineToolsPlugin, type ILineToolsPlugin } from 'lightweight-charts-line-tools-core';
-import { chartOptions, candleOptions, volumeOptions, volumeScaleMargins } from '../lib/chart-options';
+import {
+  chartOptions,
+  chartThemeOptions,
+  candleOptions,
+  volumeOptions,
+  volumeScaleMargins,
+} from '../lib/chart-options';
 import {
   removeSavedLineTools,
   restoreLineTools,
@@ -18,12 +24,13 @@ import {
 import { registerTools } from '../lib/register-tools';
 import { toCandlestick, toVolume, priceFormat } from '../lib/series-data';
 import type { Candle } from '../../../entities/market';
-import type { ChartTool } from '../model/types';
+import type { ChartTool, ChartPalette } from '../model/types';
 import styles from './ChartCanvas.module.scss';
 
 type CandleSeries = ISeriesApi<'Candlestick', Time>;
 type VolumeSeries = ISeriesApi<'Histogram', Time>;
 export function ChartCanvas({
+  palette,
   candles,
   latestCandles,
   dataKey,
@@ -42,6 +49,7 @@ export function ChartCanvas({
   lineToolsStorageScope,
   resetRequest,
 }: {
+  palette: ChartPalette;
   candles: Candle[];
   latestCandles: Candle[];
   dataKey: string;
@@ -83,6 +91,8 @@ export function ChartCanvas({
     onLoadOlder,
   });
   const [ready, setReady] = useState(false);
+  const initialPaletteRef = useRef(palette);
+  const handledResetRequestRef = useRef(0);
 
   useEffect(() => {
     onDrawingCompleteRef.current = onDrawingComplete;
@@ -115,6 +125,7 @@ export function ChartCanvas({
       height: container.clientHeight,
       ...chartOptions,
     });
+    chart.applyOptions(chartThemeOptions(initialPaletteRef.current));
     const candleSeries = chart.addSeries(CandlestickSeries, candleOptions);
     const volumeSeries = chart.addSeries(HistogramSeries, volumeOptions);
     volumeSeries.priceScale().applyOptions({ scaleMargins: volumeScaleMargins });
@@ -177,6 +188,10 @@ export function ChartCanvas({
       setReady(false);
     };
   }, []);
+
+  useLayoutEffect(() => {
+    chartRef.current?.applyOptions(chartThemeOptions(palette));
+  }, [palette]);
 
   useEffect(() => {
     if (!ready || !priceTickSize || !candleRef.current) return;
@@ -257,7 +272,8 @@ export function ChartCanvas({
   }, [drawingRequest, tool]);
 
   useEffect(() => {
-    if (!ready || resetRequest === 0 || !lineToolsRef.current) return;
+    if (!ready || resetRequest === handledResetRequestRef.current || !lineToolsRef.current) return;
+    handledResetRequestRef.current = resetRequest;
     lineToolsRef.current.removeAllLineTools();
     removeSavedLineTools(lineToolsStorageScope);
   }, [lineToolsStorageScope, ready, resetRequest]);

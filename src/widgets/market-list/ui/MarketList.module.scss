@@ -1,91 +1,21 @@
 .market-pane {
-  position: relative;
   display: flex;
   min-width: 0;
   min-height: 0;
   flex-direction: column;
   overflow: hidden;
-  border: 1px solid #292c39;
+  border: 1px solid var(--border);
   border-radius: 6px;
-  background: #101117;
-  box-shadow: 0 8px 28px #00000022;
+  background: var(--surface);
 }
 .market-controls {
   display: flex;
-  height: 47px;
+  min-height: 46px;
   flex-shrink: 0;
   align-items: center;
   gap: 8px;
-  padding: 5px 9px;
-  border-bottom: 1px solid #252732;
-  background: #13151f;
-}
-.market-controls button {
-  padding: 8px 10px;
-  border: 1px solid #2b2d39;
-  border-radius: 6px;
-  background: #1a1b23;
-  color: #d5d5dc;
-  font-size: 12px;
-  white-space: nowrap;
-}
-.market-controls .exchange {
-  background: #1c1d27;
-}
-.exchange:first-letter {
-  color: #f1af31;
-}
-.market-controls label {
-  display: flex;
-  height: 34px;
-  flex: 1;
-  align-items: center;
-  justify-content: space-between;
-  padding-right: 9px;
-  border: 1px solid #292b36;
-  border-radius: 5px;
-  background: #0d0e14;
-  color: #d3d4db;
-}
-.market-controls input {
-  width: 100%;
-  padding: 8px 10px;
-  border: 0;
-  outline: 0;
-  background: transparent;
-  color: #d5d6dc;
-  font-size: 12px;
-}
-.market-head {
-  display: grid;
-  height: 34px;
-  flex-shrink: 0;
-  grid-template-columns: 1.15fr 0.9fr 0.9fr 0.8fr 0.8fr;
-  align-items: center;
-  padding: 0 10px;
-  border-bottom: 1px solid #242630;
-  color: #a8a9b2;
-  font-size: 11px;
-}
-.market-head button {
-  border: 0;
-  background: transparent;
-  color: #a8a9b2;
-  font-size: 11px;
-  text-align: right;
-}
-.market-head button:first-child {
-  text-align: left;
-}
-.market-head button:nth-child(3) {
-  color: #f2f3f5;
-}
-.market-list {
-  min-height: 0;
-  flex: 1;
-  overflow: auto;
-  overflow-anchor: none;
-  padding-bottom: 6px;
+  padding: 8px;
+  border-bottom: 1px solid var(--border-subtle);
 }
 .market-summary {
   display: flex;
@@ -94,77 +24,42 @@
   justify-content: space-between;
   gap: 4px 12px;
   padding: 6px 10px;
-  border-bottom: 1px solid #242630;
-  color: #a8a9b2;
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
   font-size: 11px;
 }
-.empty-list {
-  padding: 16px 10px;
-  color: #a8a9b2;
+.table-viewport {
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
 }
-.row {
-  display: grid;
-  width: 100%;
-  height: 34px;
-  grid-template-columns: 1.15fr 0.9fr 0.9fr 0.8fr 0.8fr;
-  align-items: center;
-  padding: 0 11px;
-  border: 0;
-  background: transparent;
-  color: #c3c4cc;
-  font-size: 12px;
-  text-align: right;
+.table {
+  font-variant-numeric: tabular-nums;
 }
-.row:hover {
-  background: #1a1b25;
+.table :global(.ant-table-row) {
+  cursor: pointer;
 }
-.row span {
-  text-align: left;
+.table :global(.ant-table-row):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
-.row b {
-  font-size: 12px;
-}
-.row i {
-  color: #bbbcc6;
-  font-style: normal;
-}
-.row em {
-  font-style: normal;
-}
-.correlation-loader {
-  display: inline-block;
-  width: 10px;
-  height: 10px;
-  border: 1px solid #656775;
-  border-right-color: transparent;
-  border-radius: 50%;
-  animation: correlation-loading 0.8s linear infinite;
-}
-@keyframes correlation-loading {
-  to {
-    transform: rotate(360deg);
-  }
+.sort-button {
+  padding-inline: 0;
+  font-size: 11px;
+  font-weight: 600;
 }
 .green {
-  color: #05a977 !important;
+  color: var(--positive);
 }
 .red {
-  color: #ed3961 !important;
+  color: var(--negative);
 }
 .gold {
-  color: #c9a006;
+  color: var(--volume);
 }
-.selected-row {
-  background: #28233d !important;
-  box-shadow: inset 2px 0 #6f56f0;
+.table .selected-row > :global(.ant-table-cell) {
+  background: var(--selected);
 }
-@media (max-width: 1050px) {
-  .market-head,
-  .row {
-    grid-template-columns: 1.1fr 0.9fr 0.9fr 0.8fr;
-  }
-  .market-head > :last-child,
-  .row > :last-child {
-    display: none;
-  }
+.table .selected-row > :global(.ant-table-cell):first-child {
+  box-shadow: inset 2px 0 var(--accent);
 }

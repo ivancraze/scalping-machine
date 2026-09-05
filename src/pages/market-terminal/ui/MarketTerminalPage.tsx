@@ -1,4 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
+import { Button, Menu, Space, Tag, Tooltip } from 'antd';
+import {
+  AppstoreOutlined,
+  LineChartOutlined,
+  ReloadOutlined,
+  SettingOutlined,
+  TableOutlined,
+} from '@ant-design/icons';
+import { ThemeSwitch } from '../../../features/theme-switch';
 import {
   isBinanceTickerUpdate,
   marketQueryKeys,
@@ -74,36 +83,34 @@ export default function MarketTerminalPage() {
   return (
     <div className={styles.terminal}>
       <nav className={styles['global-nav']}>
-        <a className={styles.wordmark}>
-          <i>◉</i> PULSE
-        </a>
-        <div className={styles.menu}>
-          <button className={styles['menu-active']}>СПИСОК НАБЛЮДЕНИЯ</button>
-        </div>
+        <span className={styles.wordmark}>PULSE</span>
+        <Menu
+          className={styles.menu}
+          mode="horizontal"
+          selectedKeys={['watchlist']}
+          items={[{ key: 'watchlist', label: 'Список наблюдения', icon: <TableOutlined /> }]}
+        />
         <div className={styles['nav-actions']}>
-          <button>◌</button>
-          <button>▦</button>
-          <button className={styles.notification}>●</button>
-          <button>◉</button>
-          <button>Ru⌄</button>
+          <ThemeSwitch />
         </div>
       </nav>
       <div className={styles['workspace-bar']}>
-        <div className={styles['pair-chip']}>
-          <span>₿</span>
-          <b>{symbol.replace('USDT', '')}.F</b>
-          <em>✓</em>
-        </div>
-        <button>⟳</button>
-        <button>⌁</button>
-        <button>□</button>
-        <div className={styles['workspace-actions']}>
-          <button>▮</button>
-          <button>▤</button>
-          <button>▧</button>
-          <button>⚙</button>
-          <button>▦</button>
-        </div>
+        <Tag color="purple">{symbol.replace('USDT', '')}.F</Tag>
+        <span className={styles['market-label']}>Binance USD-M · USDT Perpetual</span>
+        <Space className={styles['workspace-actions']}>
+          <Tooltip title="Обновление рабочего пространства — пока недоступно">
+            <Button disabled icon={<ReloadOutlined />} aria-label="Обновление рабочего пространства" />
+          </Tooltip>
+          <Tooltip title="Дополнительные графики — пока недоступно">
+            <Button disabled icon={<LineChartOutlined />} aria-label="Дополнительные графики" />
+          </Tooltip>
+          <Tooltip title="Настройки — пока недоступны">
+            <Button disabled icon={<SettingOutlined />} aria-label="Настройки" />
+          </Tooltip>
+          <Tooltip title="Сетка графиков — пока недоступна">
+            <Button disabled icon={<AppstoreOutlined />} aria-label="Сетка графиков" />
+          </Tooltip>
+        </Space>
       </div>
       <div className={styles['terminal-body']}>
         <Chart symbol={symbol} selected={selected} />

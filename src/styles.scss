@@ -6,8 +6,6 @@
     -apple-system,
     'Segoe UI',
     sans-serif;
-  background: #090a10;
-  color: #d7d9e2;
   font-synthesis: none;
 }
 
@@ -23,4 +21,10 @@ body {
 button,
 input {
   font: inherit;
+}
+
+.theme-root {
+  height: 100vh;
+  background: var(--page-background);
+  color: var(--text);
 }

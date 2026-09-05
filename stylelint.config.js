@@ -1,6 +1,12 @@
 export default {
   extends: ['stylelint-config-standard'],
   ignoreFiles: ['dist/**', 'node_modules/**'],
+  overrides: [
+    {
+      files: ['**/*.module.scss'],
+      rules: { 'selector-pseudo-class-no-unknown': [true, { ignorePseudoClasses: ['global'] }] },
+    },
+  ],
   rules: {
     'selector-class-pattern': null,
     'custom-property-pattern': null,

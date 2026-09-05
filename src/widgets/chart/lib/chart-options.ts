@@ -7,16 +7,24 @@ import {
   type HistogramSeriesPartialOptions,
 } from 'lightweight-charts';
 import { localTickMarkFormatter, localTimeFormatter } from './time-format';
+import type { ChartPalette } from '../model/types';
+
+export const chartThemeOptions = (palette: ChartPalette): DeepPartial<ChartOptions> => ({
+  layout: { background: { type: ColorType.Solid, color: palette.background }, textColor: palette.text },
+  grid: { vertLines: { color: palette.grid }, horzLines: { color: palette.grid } },
+  rightPriceScale: { borderColor: palette.border },
+  timeScale: { borderColor: palette.border },
+  crosshair: {
+    vertLine: { color: palette.crosshair },
+    horzLine: { color: palette.crosshair },
+  },
+});
 export const chartOptions: DeepPartial<ChartOptions> = {
-  layout: { background: { type: ColorType.Solid, color: '#0c0d14' }, textColor: '#a9adba', fontSize: 11 },
-  grid: { vertLines: { color: '#181b26' }, horzLines: { color: '#181b26' } },
-  rightPriceScale: { borderColor: '#2a2c37' },
+  layout: { fontSize: 11 },
   localization: { timeFormatter: localTimeFormatter },
-  timeScale: { borderColor: '#2a2c37', timeVisible: true, tickMarkFormatter: localTickMarkFormatter },
+  timeScale: { timeVisible: true, tickMarkFormatter: localTickMarkFormatter },
   crosshair: {
     mode: CrosshairMode.Normal,
-    vertLine: { color: '#68657966' },
-    horzLine: { color: '#68657966' },
   },
   handleScroll: true,
   handleScale: true,
