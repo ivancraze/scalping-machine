@@ -168,4 +168,99 @@ describe('chart UI migration regressions', () => {
     restoreLineTools(ethImporter, eth);
     expect(ethImporter.importLineTools).toHaveBeenCalledWith(drawing);
   });
+
+  it('shifts the visible range by one bar without returning to realtime when a live candle is appended', async () => {
+    await act(() => root.render(<ChartCanvas {...props} />));
+    mocks.scale.scrollToRealTime.mockClear();
+    mocks.scale.setVisibleLogicalRange.mockClear();
+    mocks.scale.getVisibleLogicalRange.mockReturnValue({ from: 4, to: 8 });
+
+    const live: Candle = [1_757_030_520_000, '110', '120', '100', '115', '70'];
+    await act(() => root.render(<ChartCanvas {...props} latestCandles={[live]} />));
+
+    expect(mocks.candle.update).toHaveBeenCalledWith(expect.objectContaining({ close: 115 }));
+    expect(mocks.scale.scrollToRealTime).not.toHaveBeenCalled();
+    expect(mocks.scale.setVisibleLogicalRange).toHaveBeenCalledWith({ from: 5, to: 9 });
+  });
+
+  it('preserves visible-bar count and right offset when switching instruments', async () => {
+    const previousCandles = Array.from({ length: 12 }, (_, index): Candle => [
+      1_757_030_400_000 + index * 60_000,
+      '100',
+      '110',
+      '90',
+      '105',
+      '50',
+    ]);
+    const nextCandles = Array.from({ length: 20 }, (_, index): Candle => [
+      1_757_040_400_000 + index * 60_000,
+      '200',
+      '210',
+      '190',
+      '205',
+      '60',
+    ]);
+    mocks.scale.getVisibleLogicalRange.mockReturnValue({ from: 4, to: 8 });
+    await act(() => root.render(<ChartCanvas {...props} candles={previousCandles} />));
+    mocks.scale.setVisibleLogicalRange.mockClear();
+
+    await act(() =>
+      root.render(
+        <ChartCanvas {...props} candles={nextCandles} dataKey="ETHUSDT:1m" lineToolsStorageScope={eth} />,
+      ),
+    );
+
+    expect(mocks.scale.setVisibleLogicalRange).toHaveBeenCalledWith({ from: 12, to: 16 });
+    expect(mocks.scale.applyOptions).toHaveBeenCalledWith({ autoScale: true });
+  });
+
+  it('preserves the right offset after the outgoing instrument receives a live bar', async () => {
+    const previousCandles = Array.from({ length: 12 }, (_, index): Candle => [
+      1_757_030_400_000 + index * 60_000,
+      '100',
+      '110',
+      '90',
+      '105',
+      '50',
+    ]);
+    const nextCandles = Array.from({ length: 20 }, (_, index): Candle => [
+      1_757_040_400_000 + index * 60_000,
+      '200',
+      '210',
+      '190',
+      '205',
+      '60',
+    ]);
+    const live: Candle = [1_757_031_120_000, '105', '120', '100', '115', '70'];
+    await act(() => root.render(<ChartCanvas {...props} candles={previousCandles} />));
+    await act(() => root.render(<ChartCanvas {...props} candles={previousCandles} latestCandles={[live]} />));
+    mocks.scale.getVisibleLogicalRange.mockReturnValue({ from: 8, to: 12 });
+    mocks.scale.setVisibleLogicalRange.mockClear();
+
+    await act(() =>
+      root.render(
+        <ChartCanvas
+          {...props}
+          candles={nextCandles}
+          latestCandles={[]}
+          dataKey="ETHUSDT:1m"
+          lineToolsStorageScope={eth}
+        />,
+      ),
+    );
+
+    expect(mocks.scale.setVisibleLogicalRange).toHaveBeenCalledWith({ from: 15, to: 19 });
+  });
+
+  it('does not scroll to realtime when the current live candle is replaced', async () => {
+    mocks.candle.barsInLogicalRange.mockReturnValue({ barsBefore: 1000, barsAfter: 0 });
+    await act(() => root.render(<ChartCanvas {...props} />));
+    mocks.scale.scrollToRealTime.mockClear();
+
+    const replacement: Candle = [1_757_030_460_000, '105', '118', '95', '114', '65'];
+    await act(() => root.render(<ChartCanvas {...props} latestCandles={[replacement]} />));
+
+    expect(mocks.candle.update).toHaveBeenCalledWith(expect.objectContaining({ close: 114 }));
+    expect(mocks.scale.scrollToRealTime).not.toHaveBeenCalled();
+  });
 });

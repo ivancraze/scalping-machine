@@ -29,6 +29,17 @@ import styles from './ChartCanvas.module.scss';
 
 type CandleSeries = ISeriesApi<'Candlestick', Time>;
 type VolumeSeries = ISeriesApi<'Histogram', Time>;
+type Viewport = { bars: number; rightOffset: number };
+
+function lastLogicalIndex(candles: Candle[], latestCandles: Candle[]) {
+  const historicalLastOpenTime = candles.at(-1)?.[0];
+  if (historicalLastOpenTime === undefined) return -1;
+  const newerLiveBars = new Set(
+    latestCandles.filter((candle) => candle[0] > historicalLastOpenTime).map((candle) => candle[0]),
+  ).size;
+  return candles.length + newerLiveBars - 1;
+}
+
 export function ChartCanvas({
   palette,
   candles,
@@ -75,10 +86,12 @@ export function ChartCanvas({
   const lineToolsRef = useRef<ILineToolsPlugin | null>(null);
   const displayedDataKeyRef = useRef<string | null>(null);
   const hasInitialRangeRef = useRef(false);
+  const pendingViewportRef = useRef<Viewport | null>(null);
   const previousCandlesRef = useRef<Candle[]>([]);
   const latestCandlesRef = useRef(latestCandles);
   const candlesByTimeRef = useRef(new Map<number, Candle>());
   const lastSeriesOpenTimeRef = useRef<number | null>(null);
+  const lastSeriesLogicalIndexRef = useRef(-1);
   const displayedLineToolsStorageScopeRef = useRef<LineToolsStorageScope | null>(null);
   const onDrawingCompleteRef = useRef(onDrawingComplete);
   const onCandleChangeRef = useRef(onCandleChange);
@@ -181,9 +194,11 @@ export function ChartCanvas({
       lineToolsRef.current = null;
       displayedDataKeyRef.current = null;
       hasInitialRangeRef.current = false;
+      pendingViewportRef.current = null;
       previousCandlesRef.current = [];
       candlesByTimeRef.current.clear();
       lastSeriesOpenTimeRef.current = null;
+      lastSeriesLogicalIndexRef.current = -1;
       displayedLineToolsStorageScopeRef.current = null;
       setReady(false);
     };
@@ -202,16 +217,23 @@ export function ChartCanvas({
     if (!ready || !candleRef.current || !volumeRef.current || !lineToolsRef.current) return;
     const chart = chartRef.current;
     const keyChanged = displayedDataKeyRef.current !== dataKey;
+    const previousCandles = previousCandlesRef.current;
+    const currentVisibleRange = chart?.timeScale().getVisibleLogicalRange();
     if (keyChanged) {
-      // Manual scaling and visible range belong to the previous instrument or interval.
+      if (currentVisibleRange && previousCandles.length > 0) {
+        pendingViewportRef.current = {
+          bars: currentVisibleRange.to - currentVisibleRange.from,
+          rightOffset: lastSeriesLogicalIndexRef.current - currentVisibleRange.to,
+        };
+      }
+      // Price scaling belongs to the previous instrument or interval.
       candleRef.current.priceScale().applyOptions({ autoScale: true });
       displayedDataKeyRef.current = dataKey;
       hasInitialRangeRef.current = false;
       previousCandlesRef.current = [];
       lastSeriesOpenTimeRef.current = null;
     }
-    const visibleRange = keyChanged ? null : chart?.timeScale().getVisibleLogicalRange();
-    const previousCandles = previousCandlesRef.current;
+    const visibleRange = keyChanged ? null : currentVisibleRange;
     candlesByTimeRef.current = new Map(candles.map((candle) => [candle[0], candle]));
     candleRef.current.setData(candles.map(toCandlestick));
     volumeRef.current.setData(candles.map(toVolume));
@@ -228,12 +250,19 @@ export function ChartCanvas({
       volumeRef.current.update(toVolume(candle));
       lastSeriesOpenTimeRef.current = candle[0];
     }
+    lastSeriesLogicalIndexRef.current = lastLogicalIndex(candles, latestCandlesRef.current);
     previousCandlesRef.current = candles;
     if (!chart || candles.length === 0) return;
     if (!hasInitialRangeRef.current) {
-      const to = candles.length - 1;
-      chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, candles.length - 100), to });
+      const viewport = pendingViewportRef.current;
+      const lastIndex = lastLogicalIndex(candles, latestCandlesRef.current);
+      const to = Math.max(0, lastIndex - (viewport?.rightOffset ?? 0));
+      chart.timeScale().setVisibleLogicalRange({
+        from: Math.max(0, to - (viewport?.bars ?? 99)),
+        to,
+      });
       hasInitialRangeRef.current = true;
+      pendingViewportRef.current = null;
     } else if (visibleRange) {
       const previousAnchorIndex = Math.min(
         previousCandles.length - 1,
@@ -251,12 +280,26 @@ export function ChartCanvas({
 
   useEffect(() => {
     if (!ready || !candleRef.current || !volumeRef.current) return;
+    const chart = chartRef.current;
+    const visibleRange = chart?.timeScale().getVisibleLogicalRange();
+    let appendedBars = 0;
     for (const candle of latestCandles) {
       candlesByTimeRef.current.set(candle[0], candle);
       if (lastSeriesOpenTimeRef.current !== null && candle[0] < lastSeriesOpenTimeRef.current) continue;
+      if (lastSeriesOpenTimeRef.current !== null && candle[0] > lastSeriesOpenTimeRef.current)
+        appendedBars += 1;
       candleRef.current.update(toCandlestick(candle));
       volumeRef.current.update(toVolume(candle));
       lastSeriesOpenTimeRef.current = candle[0];
+    }
+    if (appendedBars > 0) {
+      lastSeriesLogicalIndexRef.current += appendedBars;
+      if (visibleRange) {
+        chart?.timeScale().setVisibleLogicalRange({
+          from: visibleRange.from + appendedBars,
+          to: visibleRange.to + appendedBars,
+        });
+      }
     }
   }, [dataKey, latestCandles, ready]);
 
