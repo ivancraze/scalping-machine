@@ -13,7 +13,7 @@ import {
   type TableRef,
 } from 'antd';
 import { FlagFilled, FlagOutlined, FilterOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
-import { useCorrelationsQuery } from '../../../entities/market';
+import { useCorrelationsQuery, useNatrsQuery } from '../../../entities/market';
 import {
   marketListSortMark,
   nextMarketListSortState,
@@ -79,9 +79,12 @@ export function MarketList({ market, selectedSymbol, onSymbolChange }: MarketLis
   );
   const correlationsQuery = useCorrelationsQuery(correlationSymbols, correlationSymbols.length > 0);
   const correlations = correlationsQuery.data ?? EMPTY_CORRELATIONS;
+  const natrsQuery = useNatrsQuery(correlationSymbols, correlationSymbols.length > 0);
+  const natrs = natrsQuery.data ?? EMPTY_CORRELATIONS;
   const rows = useMemo(
-    () => selectMarketRows(visibleMarket, query, sorting, sortDirection, correlations),
-    [correlations, query, sortDirection, sorting, visibleMarket],
+    () =>
+      selectMarketRows(visibleMarket, query, sorting, sortDirection, correlations, natrs, favoriteSymbols),
+    [correlations, favoriteSymbols, natrs, query, sortDirection, sorting, visibleMarket],
   );
   const tableRows = useMemo<MarketTableRow[]>(() => {
     const eligible = new Set(correlationSymbols);
@@ -89,8 +92,10 @@ export function MarketList({ market, selectedSymbol, onSymbolChange }: MarketLis
       ...row,
       correlation: correlations[row.symbol],
       correlationLoading: correlationsQuery.isFetching && eligible.has(row.symbol),
+      natr5m14: natrs[row.symbol],
+      natr5m14Loading: natrsQuery.isFetching && eligible.has(row.symbol),
     }));
-  }, [rows, correlations, correlationsQuery.isFetching, correlationSymbols]);
+  }, [rows, correlations, correlationsQuery.isFetching, correlationSymbols, natrs, natrsQuery.isFetching]);
 
   const columns = useMemo<TableColumnsType<MarketTableRow>>(() => {
     const header = (key: MarketListSortKey, label: string) => ({
@@ -107,8 +112,12 @@ export function MarketList({ market, selectedSymbol, onSymbolChange }: MarketLis
             setSortDirection(next.sortDirection);
           }}
         >
-          {label}
-          {marketListSortMark(key, sorting, sortDirection)}
+          <span>{label}</span>
+          {sorting === key && (
+            <span className={styles['sort-mark']} aria-hidden="true">
+              {marketListSortMark(key, sorting, sortDirection)}
+            </span>
+          )}
         </Button>
       ),
       onHeaderCell: () => ({
@@ -122,9 +131,8 @@ export function MarketList({ market, selectedSymbol, onSymbolChange }: MarketLis
     });
     return [
       {
-        key: 'favorite',
-        title: <span className={styles['favorite-header']} aria-label="Закладка" />,
-        width: 32,
+        ...header('favorite', ' '),
+        width: 44,
         align: 'center',
         render: (_, row) => {
           const isFavorite = favoriteSymbols.has(row.symbol);
@@ -148,33 +156,48 @@ export function MarketList({ market, selectedSymbol, onSymbolChange }: MarketLis
       },
       {
         ...header('symbol', 'Монета'),
-        width: 72,
+        width: 100,
         dataIndex: 'symbol',
         render: (symbol: string) => symbol.replace('USDT', ''),
       },
       {
-        ...header('volume', 'Объём 24ч'),
-        width: 82,
+        ...header('volume', 'Vol 24'),
+        width: 56,
         align: 'right',
         render: (_, row) => <span className={styles.gold}>{compact(row.volume)}$</span>,
       },
       {
-        ...header('change', 'Цена 24ч'),
-        width: 78,
+        ...header('change', 'Цена 24'),
+        width: 70,
         align: 'right',
         render: (_, row) => (
           <span className={row.change >= 0 ? styles.green : styles.red}>{rate(row.change)}</span>
         ),
       },
       {
-        ...header('natr', 'Вол 24ч'),
-        width: 68,
+        ...header('natr', 'Вол. 24'),
+        width: 60,
         align: 'right',
         render: (_, row) => `${row.natr.toFixed(2)}%`,
       },
       {
-        ...header('correlation', 'Корр 24ч'),
-        width: 76,
+        ...header('natr5m14', 'NATR 5/14'),
+        width: 60,
+        align: 'right',
+        render: (_, row) =>
+          row.natr5m14 === undefined ? (
+            row.natr5m14Loading ? (
+              <Spin size="small" aria-label="Расчёт NATR 5м (14)" />
+            ) : (
+              '—'
+            )
+          ) : (
+            `${row.natr5m14.toFixed(2)}%`
+          ),
+      },
+      {
+        ...header('correlation', 'Корр. BTC'),
+        width: 58,
         align: 'right',
         render: (_, row) =>
           row.correlation === undefined ? (
@@ -245,7 +268,7 @@ export function MarketList({ market, selectedSymbol, onSymbolChange }: MarketLis
           pagination={false}
           virtual
           size="small"
-          scroll={{ x: Math.max(410, viewport.width), y: viewport.height, scrollToFirstRowOnChange: false }}
+          scroll={{ x: viewport.width, y: viewport.height, scrollToFirstRowOnChange: false }}
           locale={{
             emptyText: (
               <Empty

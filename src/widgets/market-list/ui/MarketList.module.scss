@@ -56,17 +56,28 @@
   outline-offset: -2px;
 }
 .sort-button {
+  position: relative;
+  display: block;
+  width: 100%;
+  min-width: 0;
   padding-inline: 0;
+  padding-right: 8px;
+  overflow: hidden;
+  text-align: inherit;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 10px;
   font-weight: 600;
 }
-.favorite-header {
-  display: block;
-  width: 16px;
+.sort-mark {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  transform: translateY(-50%);
 }
 .favorite-button {
-  min-width: 24px;
-  padding-inline: 4px;
+  min-width: 32px;
+  padding-inline: 6px;
   color: var(--text-secondary);
 }
 .favorite-button[aria-pressed='true'] {

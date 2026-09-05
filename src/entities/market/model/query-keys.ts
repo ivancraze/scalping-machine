@@ -14,5 +14,7 @@ export const marketQueryKeys = {
     [...marketQueryKeys.all, 'correlation-candles', '1h', symbol, endTime] as const,
   natr: (symbol: string, interval: string, period: number) =>
     [...marketQueryKeys.all, 'natr', symbol, interval, period] as const,
+  natrs: (symbols: string[], interval: string, period: number) =>
+    [...marketQueryKeys.all, 'natrs', interval, period, symbols] as const,
   openInterest: (symbol: string) => [...marketQueryKeys.all, 'open-interest', symbol] as const,
 };
