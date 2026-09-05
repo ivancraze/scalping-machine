@@ -251,11 +251,6 @@ export function ChartCanvas({
 
   useEffect(() => {
     if (!ready || !candleRef.current || !volumeRef.current) return;
-    const chart = chartRef.current;
-    const visibleRange = chart?.timeScale().getVisibleLogicalRange();
-    const staysAtRealtime = Boolean(
-      visibleRange && (candleRef.current.barsInLogicalRange(visibleRange)?.barsAfter ?? 1) <= 0,
-    );
     for (const candle of latestCandles) {
       candlesByTimeRef.current.set(candle[0], candle);
       if (lastSeriesOpenTimeRef.current !== null && candle[0] < lastSeriesOpenTimeRef.current) continue;
@@ -263,7 +258,6 @@ export function ChartCanvas({
       volumeRef.current.update(toVolume(candle));
       lastSeriesOpenTimeRef.current = candle[0];
     }
-    if (staysAtRealtime) chart?.timeScale().scrollToRealTime();
   }, [dataKey, latestCandles, ready]);
 
   useEffect(() => {
