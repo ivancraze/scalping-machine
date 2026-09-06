@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   removeSavedLineTools,
+  removeManualLineTools,
   restoreLineTools,
   saveLineTools,
   subscribeToLineTools,
@@ -72,5 +73,32 @@ describe('line tools storage', () => {
     expect(btcListener).toHaveBeenNthCalledWith(1, { sourceId: '15m-chart', lineTools });
     expect(btcListener).toHaveBeenNthCalledWith(2, { sourceId: '1m-chart', lineTools: null });
     expect(ethListener).not.toHaveBeenCalled();
+  });
+
+  it('excludes automatic levels from the saved manual layout', () => {
+    const manual = { id: 'manual', toolType: 'TrendLine', points: [], options: {} };
+    const automatic = {
+      id: 'pulse:auto-level:support:1:2',
+      toolType: 'HorizontalLine',
+      points: [],
+      options: {},
+    };
+    const importer = { importLineTools: vi.fn() };
+
+    saveLineTools({ exportLineTools: () => JSON.stringify([manual, automatic]) }, btc, 'chart');
+    restoreLineTools(importer, btc, '15m');
+
+    expect(importer.importLineTools).toHaveBeenCalledWith(JSON.stringify([manual]));
+  });
+
+  it('removes manual tools without touching automatic levels', () => {
+    const lineTools = {
+      exportLineTools: () => JSON.stringify([{ id: 'manual' }, { id: 'pulse:auto-level:support:1:2' }]),
+      removeLineToolsById: vi.fn(),
+    };
+
+    removeManualLineTools(lineTools);
+
+    expect(lineTools.removeLineToolsById).toHaveBeenCalledWith(['manual']);
   });
 });

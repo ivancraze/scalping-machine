@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Alert, Button, Dropdown, Segmented, Spin, Tooltip, theme, Typography } from 'antd';
 import { AimOutlined, EllipsisOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons';
 import { ResetChartObjects } from '../../../features/reset-chart-objects';
+import { AutoLevelsPanel, useAutoLevels } from '../../../features/auto-levels';
 import {
   mergeCandlePages,
   useCandleHistoryQuery,
@@ -48,11 +49,18 @@ export function Chart({ symbol, selected }: { symbol: string; selected?: MarketR
   const [resetRequest, setResetRequest] = useState(0);
   const [isToolsOpen, setIsToolsOpen] = useState(false);
   const [isAssetDataExpanded, setIsAssetDataExpanded] = useState(false);
+  const [selectedAutoLevelId, setSelectedAutoLevelId] = useState<string | null>(null);
   const interval = intervals[timeframe];
   const secondsPerCandle = interval.endsWith('s') ? Number.parseInt(interval, 10) : null;
   const dataKey = `${symbol}:${interval}`;
   const lineToolsStorageScope = useMemo(() => ({ exchange: 'binance-usdm', symbol }), [symbol]);
   const candleHistory = useCandleHistoryQuery(symbol, secondsPerCandle ? '1m' : interval);
+  const {
+    fetchNextPage: fetchOlderCandles,
+    hasNextPage: hasOlderCandles,
+    isFetching: isFetchingCandles,
+    isFetchNextPageError: hasOlderCandlesError,
+  } = candleHistory;
   const includesCurrentEnd = Boolean(candleHistory.data?.pages.some((page) => page.reachesNewerEnd));
   const latestCandles = useLatestCandlesQuery(symbol, secondsPerCandle ? '1m' : interval, includesCurrentEnd);
   useLiveCandleSubscription(symbol, interval, !secondsPerCandle && includesCurrentEnd);
@@ -64,6 +72,39 @@ export function Chart({ symbol, selected }: { symbol: string; selected?: MarketR
   const displayedCandles = secondsPerCandle ? (secondCandles.data ?? EMPTY_CANDLES) : candles;
   const latestCandlesForCanvas =
     !secondsPerCandle && includesCurrentEnd ? (latestCandles.data ?? EMPTY_CANDLES) : EMPTY_CANDLES;
+  const autoLevels = useAutoLevels({
+    symbol,
+    displayedInterval: interval,
+    displayedCandles,
+    displayedLatestCandles: latestCandlesForCanvas,
+    displayedIncludesCurrentEnd: includesCurrentEnd,
+    displayedCanLoadOlder: Boolean(candleHistory.hasNextPage),
+  });
+  useEffect(() => {
+    if (
+      !autoLevels.settings.enabled ||
+      autoLevels.settings.interval !== interval ||
+      secondsPerCandle ||
+      candles.length > autoLevels.analysisHistorySize ||
+      !hasOlderCandles ||
+      isFetchingCandles ||
+      hasOlderCandlesError
+    )
+      return;
+    void fetchOlderCandles({ cancelRefetch: false });
+  }, [
+    autoLevels.analysisHistorySize,
+    autoLevels.settings.enabled,
+    autoLevels.settings.interval,
+    candles.length,
+    fetchOlderCandles,
+    hasOlderCandles,
+    hasOlderCandlesError,
+    interval,
+    isFetchingCandles,
+    secondsPerCandle,
+  ]);
+  const selectedAutoLevel = autoLevels.levels.find(({ id }) => id === selectedAutoLevelId) ?? null;
   const startDrawing = (tool: ChartTool) => {
     setDrawingTool(tool);
     setDrawingRequest((current) => current + 1);
@@ -262,6 +303,16 @@ export function Chart({ symbol, selected }: { symbol: string; selected?: MarketR
               aria-expanded={isToolsOpen}
             />
           </Dropdown>
+          <AutoLevelsPanel
+            settings={autoLevels.settings}
+            levels={autoLevels.levels}
+            selectedLevel={selectedAutoLevel}
+            isCalculating={autoLevels.isCalculating}
+            error={autoLevels.error}
+            analysisUsesDisplayedInterval={autoLevels.analysisUsesDisplayedInterval}
+            onSettingsChange={autoLevels.updateSettings}
+            onToggleFrozen={autoLevels.toggleFrozen}
+          />
           <ResetChartObjects
             key={dataKey}
             onConfirm={() => {
@@ -295,6 +346,11 @@ export function Chart({ symbol, selected }: { symbol: string; selected?: MarketR
           onDrawingComplete={() => setDrawingTool(null)}
           lineToolsStorageScope={lineToolsStorageScope}
           resetRequest={resetRequest}
+          autoLevels={autoLevels.levels}
+          autoLevelSettings={autoLevels.settings}
+          onAutoLevelSelected={setSelectedAutoLevelId}
+          onAutoLevelEdited={autoLevels.editLevel}
+          onAutoLevelDeleted={autoLevels.deleteLevel}
         />
         {!secondsPerCandle && candleHistory.isPending && (
           <div className={styles['query-status']} role="status">

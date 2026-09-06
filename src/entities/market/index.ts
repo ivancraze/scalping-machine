@@ -2,6 +2,8 @@ export type { Candle } from './model/candle';
 export type { MarketRow } from './model/market';
 export {
   mergeCandlePages,
+  useClosedCandleWindowQuery,
+  useClosedCandleWindowSubscription,
   useCandleHistoryQuery,
   useLiveCandleSubscription,
   useLatestCandlesQuery,

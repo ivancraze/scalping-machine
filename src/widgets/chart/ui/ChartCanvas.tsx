@@ -7,7 +7,12 @@ import {
   type ISeriesApi,
   type Time,
 } from 'lightweight-charts';
-import { createLineToolsPlugin, type ILineToolsPlugin } from 'lightweight-charts-line-tools-core';
+import {
+  createLineToolsPlugin,
+  type ILineToolsPlugin,
+  type LineToolsAfterEditEventParams,
+  type LineToolsSingleClickEventParams,
+} from 'lightweight-charts-line-tools-core';
 import {
   chartOptions,
   chartThemeOptions,
@@ -17,14 +22,22 @@ import {
 } from '../lib/chart-options';
 import {
   removeSavedLineTools,
+  removeManualLineTools,
   restoreLineTools,
   saveLineTools,
   subscribeToLineTools,
   type LineToolsStorageScope,
 } from '../lib/line-tools-storage';
+import { syncAutoLevelLineTools } from '../lib/auto-level-line-tools';
 import { registerTools } from '../lib/register-tools';
 import { toCandlestick, toVolume, priceFormat } from '../lib/series-data';
 import type { Candle } from '../../../entities/market';
+import {
+  AUTO_LEVEL_ID_PREFIX,
+  type AutoLevelPoint,
+  type AutoLevelSettings,
+  type DetectedAutoLevel,
+} from '../../../entities/auto-level';
 import type { ChartTool, ChartPalette } from '../model/types';
 import styles from './ChartCanvas.module.scss';
 
@@ -64,6 +77,11 @@ export function ChartCanvas({
   tool,
   lineToolsStorageScope,
   resetRequest,
+  autoLevels,
+  autoLevelSettings,
+  onAutoLevelSelected,
+  onAutoLevelEdited,
+  onAutoLevelDeleted,
 }: {
   palette: ChartPalette;
   candles: Candle[];
@@ -83,6 +101,11 @@ export function ChartCanvas({
   tool: ChartTool;
   lineToolsStorageScope: LineToolsStorageScope;
   resetRequest: number;
+  autoLevels: DetectedAutoLevel[];
+  autoLevelSettings: AutoLevelSettings;
+  onAutoLevelSelected: (id: string | null) => void;
+  onAutoLevelEdited: (id: string, points: AutoLevelPoint[]) => void;
+  onAutoLevelDeleted: (id: string) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -105,6 +128,9 @@ export function ChartCanvas({
   const pendingLineToolsSyncTimeoutRef = useRef<number | null>(null);
   const onDrawingCompleteRef = useRef(onDrawingComplete);
   const onCandleChangeRef = useRef(onCandleChange);
+  const onAutoLevelSelectedRef = useRef(onAutoLevelSelected);
+  const onAutoLevelEditedRef = useRef(onAutoLevelEdited);
+  const onAutoLevelDeletedRef = useRef(onAutoLevelDeleted);
   const historyLoadingRef = useRef({
     canLoadNewer,
     canLoadOlder,
@@ -124,6 +150,12 @@ export function ChartCanvas({
   useEffect(() => {
     onCandleChangeRef.current = onCandleChange;
   }, [onCandleChange]);
+
+  useEffect(() => {
+    onAutoLevelSelectedRef.current = onAutoLevelSelected;
+    onAutoLevelEditedRef.current = onAutoLevelEdited;
+    onAutoLevelDeletedRef.current = onAutoLevelDeleted;
+  }, [onAutoLevelDeleted, onAutoLevelEdited, onAutoLevelSelected]);
 
   useEffect(() => {
     latestCandlesRef.current = latestCandles;
@@ -166,15 +198,25 @@ export function ChartCanvas({
       }
       persistLineTools();
     };
-    lineTools.subscribeLineToolsAfterEdit(({ stage }) => {
+    const afterEdit = ({ stage, selectedLineTool }: LineToolsAfterEditEventParams) => {
       if (pendingLineToolsSaveRef.current === null) {
         pendingLineToolsSaveRef.current = window.setTimeout(() => {
           pendingLineToolsSaveRef.current = null;
           persistLineTools();
         }, 16);
       }
+      if (stage === 'lineToolEdited' && selectedLineTool.id.startsWith(AUTO_LEVEL_ID_PREFIX))
+        onAutoLevelEditedRef.current(selectedLineTool.id, selectedLineTool.points);
       if (stage === 'lineToolFinished' || stage === 'pathFinished') onDrawingCompleteRef.current();
-    });
+    };
+    lineTools.subscribeLineToolsAfterEdit(afterEdit);
+    const selectLineTool = ({ selectionState, selectedLineTool }: LineToolsSingleClickEventParams) => {
+      const id = selectedLineTool.id;
+      onAutoLevelSelectedRef.current(
+        selectionState === 'selected' && id.startsWith(AUTO_LEVEL_ID_PREFIX) ? id : null,
+      );
+    };
+    lineTools.subscribeLineToolsSingleClick(selectLineTool);
     const loadHistoryNearEdge = (range: { from: number; to: number } | null) => {
       if (!range) return;
       const bars = candleSeries.barsInLogicalRange(range);
@@ -192,7 +234,24 @@ export function ChartCanvas({
     chart.subscribeCrosshairMove(showCandleAtCrosshair);
     const removeSelectedOnRightClick = (event: MouseEvent) => {
       event.preventDefault();
+      try {
+        const selected: unknown = JSON.parse(lineTools.getSelectedLineTools());
+        if (Array.isArray(selected))
+          selected.forEach((lineTool) => {
+            if (
+              typeof lineTool === 'object' &&
+              lineTool !== null &&
+              'id' in lineTool &&
+              typeof lineTool.id === 'string' &&
+              lineTool.id.startsWith(AUTO_LEVEL_ID_PREFIX)
+            )
+              onAutoLevelDeletedRef.current(lineTool.id);
+          });
+      } catch {
+        // Selection can disappear between the pointer event and plugin lookup.
+      }
       lineTools.removeSelectedLineTools();
+      onAutoLevelSelectedRef.current(null);
       persistLineToolsRef.current();
     };
     container.addEventListener('contextmenu', removeSelectedOnRightClick);
@@ -211,6 +270,8 @@ export function ChartCanvas({
       container.removeEventListener('contextmenu', removeSelectedOnRightClick);
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(loadHistoryNearEdge);
       chart.unsubscribeCrosshairMove(showCandleAtCrosshair);
+      lineTools.unsubscribeLineToolsAfterEdit(afterEdit);
+      lineTools.unsubscribeLineToolsSingleClick(selectLineTool);
       lineTools.destroy();
       chart.remove();
       chartRef.current = null;
@@ -225,6 +286,7 @@ export function ChartCanvas({
       lastSeriesOpenTimeRef.current = null;
       lastSeriesLogicalIndexRef.current = -1;
       displayedLineToolsStorageScopeRef.current = null;
+      onAutoLevelSelectedRef.current(null);
       setReady(false);
     };
   }, [lineToolsSourceId]);
@@ -254,6 +316,7 @@ export function ChartCanvas({
       // Price scaling belongs to the previous instrument or interval.
       candleRef.current.priceScale().applyOptions({ autoScale: true });
       displayedDataKeyRef.current = dataKey;
+      onAutoLevelSelectedRef.current(null);
       hasInitialRangeRef.current = false;
       previousCandlesRef.current = [];
       lastSeriesOpenTimeRef.current = null;
@@ -315,7 +378,7 @@ export function ChartCanvas({
         const nextLineTools = pendingLineToolsSyncRef.current;
         pendingLineToolsSyncRef.current = undefined;
         if (nextLineTools === undefined || !lineToolsRef.current) return;
-        lineToolsRef.current.removeAllLineTools();
+        removeManualLineTools(lineToolsRef.current);
         if (nextLineTools) lineToolsRef.current.importLineTools(JSON.stringify(nextLineTools));
       }, 16);
     });
@@ -360,13 +423,18 @@ export function ChartCanvas({
   }, [drawingRequest, tool]);
 
   useEffect(() => {
+    if (!ready || !lineToolsRef.current) return;
+    syncAutoLevelLineTools(lineToolsRef.current, autoLevels, autoLevelSettings);
+  }, [autoLevelSettings, autoLevels, dataKey, ready]);
+
+  useEffect(() => {
     if (!ready || resetRequest === handledResetRequestRef.current || !lineToolsRef.current) return;
     handledResetRequestRef.current = resetRequest;
     if (pendingLineToolsSaveRef.current !== null) {
       window.clearTimeout(pendingLineToolsSaveRef.current);
       pendingLineToolsSaveRef.current = null;
     }
-    lineToolsRef.current.removeAllLineTools();
+    removeManualLineTools(lineToolsRef.current);
     removeSavedLineTools(lineToolsStorageScope, lineToolsSourceId);
   }, [lineToolsSourceId, lineToolsStorageScope, ready, resetRequest]);
 

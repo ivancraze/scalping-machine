@@ -1,4 +1,5 @@
 import type { ILineToolsPlugin } from 'lightweight-charts-line-tools-core';
+import { AUTO_LEVEL_ID_PREFIX } from '../../../entities/auto-level';
 
 export type LineToolsStorageScope = {
   exchange: string;
@@ -16,12 +17,21 @@ type LegacyStoredLineTools = LineToolsStorageScope & {
 };
 type LineToolsExporter = Pick<ILineToolsPlugin, 'exportLineTools'>;
 type LineToolsImporter = Pick<ILineToolsPlugin, 'importLineTools'>;
+type LineToolsRemover = Pick<ILineToolsPlugin, 'exportLineTools' | 'removeLineToolsById'>;
 type StorageListener = (change: { sourceId: string; lineTools: unknown[] | null }) => void;
 
 const LINE_TOOLS_STORAGE_PREFIX = 'pulse-terminal:line-tools';
 const LINE_TOOLS_STORAGE_VERSION = 2;
 const LEGACY_STORAGE_VERSION = 1;
 const listeners = new Map<string, Set<StorageListener>>();
+
+const isLineToolWithId = (lineTool: unknown): lineTool is { id: string } =>
+  typeof lineTool === 'object' && lineTool !== null && 'id' in lineTool && typeof lineTool.id === 'string';
+
+const manualLineTools = (lineTools: unknown[]) =>
+  lineTools.filter(
+    (lineTool) => !isLineToolWithId(lineTool) || !lineTool.id.startsWith(AUTO_LEVEL_ID_PREFIX),
+  );
 
 const storageKey = ({ exchange, symbol }: LineToolsStorageScope) =>
   `${LINE_TOOLS_STORAGE_PREFIX}:v${LINE_TOOLS_STORAGE_VERSION}:${exchange}:${symbol}`;
@@ -111,10 +121,24 @@ export const saveLineTools = (
   try {
     const exportedTools: unknown = JSON.parse(lineTools.exportLineTools());
     if (!Array.isArray(exportedTools)) return;
-    saveState(scope, exportedTools);
-    publish(scope, sourceId, exportedTools);
+    const manualTools = manualLineTools(exportedTools);
+    saveState(scope, manualTools);
+    publish(scope, sourceId, manualTools);
   } catch {
     // The plugin can be unavailable while a chart is being destroyed.
+  }
+};
+
+export const removeManualLineTools = (lineTools: LineToolsRemover) => {
+  try {
+    const exportedTools: unknown = JSON.parse(lineTools.exportLineTools());
+    if (!Array.isArray(exportedTools)) return;
+    const ids = manualLineTools(exportedTools).flatMap((lineTool) =>
+      isLineToolWithId(lineTool) ? [lineTool.id] : [],
+    );
+    if (ids.length > 0) lineTools.removeLineToolsById(ids);
+  } catch {
+    // Ignore an unavailable plugin while the chart is switching or being destroyed.
   }
 };
 

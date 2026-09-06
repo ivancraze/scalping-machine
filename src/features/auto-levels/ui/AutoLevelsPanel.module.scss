@@ -1,0 +1,90 @@
+.panel {
+  display: grid;
+  gap: 12px;
+  width: 300px;
+  max-height: min(700px, calc(100vh - 96px));
+  padding-right: 4px;
+  overflow-y: auto;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.explanation {
+  margin: 0 !important;
+}
+
+.legend,
+.selected {
+  display: grid;
+  gap: 6px;
+}
+
+.legend span {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+}
+
+.legend i {
+  width: 18px;
+  height: 0;
+  border-top: 2px dashed;
+}
+
+.support {
+  color: var(--positive);
+}
+
+.resistance {
+  color: var(--negative);
+}
+
+.selected {
+  padding: 9px;
+  background: var(--selected);
+  border-radius: 6px;
+}
+
+.settings {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 0;
+  margin: 0;
+  border: 0;
+
+  label {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 120px;
+    gap: 10px;
+    align-items: center;
+  }
+
+  &:disabled {
+    opacity: 0.55;
+  }
+}
+
+.types {
+  display: grid;
+  gap: 6px;
+}
+
+.sectionHeading {
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.color {
+  width: 100%;
+  height: 32px;
+  padding: 3px;
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}

@@ -3,6 +3,7 @@ import { act, type ComponentProps } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Candle } from '../../../entities/market';
+import { DEFAULT_AUTO_LEVEL_SETTINGS, type DetectedAutoLevel } from '../../../entities/auto-level';
 import { restoreLineTools, saveLineTools } from '../lib/line-tools-storage';
 import { ChartCanvas } from './ChartCanvas';
 
@@ -35,11 +36,18 @@ const mocks = vi.hoisted(() => {
   const lineTools = {
     setMagnetThreshold: vi.fn(),
     subscribeLineToolsAfterEdit: vi.fn(),
+    unsubscribeLineToolsAfterEdit: vi.fn(),
+    subscribeLineToolsSingleClick: vi.fn(),
+    unsubscribeLineToolsSingleClick: vi.fn(),
     removeSelectedLineTools: vi.fn(),
     removeAllLineTools: vi.fn(),
+    removeLineToolsById: vi.fn(),
     importLineTools: vi.fn(),
     exportLineTools: vi.fn(() => '[]'),
+    getSelectedLineTools: vi.fn(() => '[]'),
+    getLineToolsByIdRegex: vi.fn(() => '[]'),
     addLineTool: vi.fn(),
+    createOrUpdateLineTool: vi.fn(),
     destroy: vi.fn(),
   };
   return { scale, candle, volume, chart, lineTools, createChart: vi.fn(() => chart) };
@@ -51,6 +59,7 @@ vi.mock('lightweight-charts', () => ({
   HistogramSeries: {},
   ColorType: { Solid: 'solid' },
   CrosshairMode: { Normal: 0 },
+  LineStyle: { Solid: 0, Dotted: 1, Dashed: 2, LargeDashed: 3 },
 }));
 vi.mock('lightweight-charts-line-tools-core', () => ({ createLineToolsPlugin: () => mocks.lineTools }));
 vi.mock('../lib/register-tools', () => ({ registerTools: vi.fn() }));
@@ -87,6 +96,11 @@ const props: ComponentProps<typeof ChartCanvas> = {
   tool: null,
   lineToolsStorageScope: btc,
   resetRequest: 0,
+  autoLevels: [],
+  autoLevelSettings: DEFAULT_AUTO_LEVEL_SETTINGS,
+  onAutoLevelSelected: noop,
+  onAutoLevelEdited: noop,
+  onAutoLevelDeleted: noop,
 };
 
 let root: Root;
@@ -180,7 +194,8 @@ describe('chart UI migration regressions', () => {
       await new Promise((resolve) => window.setTimeout(resolve, 20));
     });
 
-    expect(mocks.lineTools.removeAllLineTools).toHaveBeenCalledTimes(1);
+    expect(mocks.lineTools.exportLineTools).toHaveBeenCalled();
+    expect(mocks.lineTools.removeAllLineTools).not.toHaveBeenCalled();
     expect(mocks.lineTools.importLineTools).toHaveBeenCalledWith(drawing);
   });
 
@@ -277,5 +292,121 @@ describe('chart UI migration regressions', () => {
 
     expect(mocks.candle.update).toHaveBeenCalledWith(expect.objectContaining({ close: 114 }));
     expect(mocks.scale.scrollToRealTime).not.toHaveBeenCalled();
+  });
+
+  it('creates native auto levels with stable ids and removes only obsolete auto levels', async () => {
+    const autoLevel: DetectedAutoLevel = {
+      id: 'pulse:auto-level:support:1:2',
+      detector: 'breakout',
+      kind: 'support',
+      points: [{ timestamp: 1, price: 100 }],
+      projectedPrice: 100,
+      touches: 3,
+      score: 70,
+      weak: false,
+      analysisInterval: '15m',
+      frozen: false,
+      distancePercent: 0.42,
+      breakoutDirection: 'down',
+      compression: true,
+    };
+    const trendLevel: DetectedAutoLevel = {
+      ...autoLevel,
+      id: 'pulse:auto-level:trend-support:1:2',
+      kind: 'trend-support',
+      points: [
+        { timestamp: 1, price: 100 },
+        { timestamp: 2, price: 101 },
+      ],
+      projectedPrice: 102,
+    };
+    const extremumLevel: DetectedAutoLevel = {
+      ...autoLevel,
+      id: 'pulse:auto-level:ex:resistance:3',
+      detector: 'extremum',
+      kind: 'resistance',
+      points: [{ timestamp: 3, price: 110 }],
+      projectedPrice: 110,
+      touches: 2,
+      zonePercent: 0.8,
+      breakoutDirection: undefined,
+      distancePercent: undefined,
+      compression: undefined,
+    };
+    mocks.lineTools.getLineToolsByIdRegex.mockReturnValue(
+      JSON.stringify([{ id: 'pulse:auto-level:resistance:old:level' }]),
+    );
+
+    await act(() =>
+      root.render(<ChartCanvas {...props} autoLevels={[autoLevel, trendLevel, extremumLevel]} />),
+    );
+
+    expect(mocks.lineTools.removeLineToolsById).toHaveBeenCalledWith([
+      'pulse:auto-level:resistance:old:level',
+    ]);
+    expect(mocks.lineTools.createOrUpdateLineTool).toHaveBeenCalledWith(
+      'HorizontalRay',
+      autoLevel.points,
+      expect.objectContaining({
+        ownerSourceId: 'pulse:auto-levels',
+        line: expect.objectContaining({ extend: { left: false, right: true } }),
+        text: expect.objectContaining({ value: expect.stringContaining('↓ пробой') }),
+      }),
+      autoLevel.id,
+    );
+    expect(mocks.lineTools.createOrUpdateLineTool).toHaveBeenCalledWith(
+      'TrendLine',
+      trendLevel.points,
+      expect.objectContaining({ ownerSourceId: 'pulse:auto-levels' }),
+      trendLevel.id,
+    );
+    expect(mocks.lineTools.createOrUpdateLineTool).toHaveBeenCalledWith(
+      'HorizontalRay',
+      extremumLevel.points,
+      expect.objectContaining({
+        showPriceAxisLabels: true,
+        priceAxisLabelAlwaysVisible: true,
+        line: expect.objectContaining({ color: '#969aa8', style: 0 }),
+        text: expect.objectContaining({
+          value: '',
+          box: { alignment: { horizontal: 'left' } },
+        }),
+      }),
+      extremumLevel.id,
+    );
+  });
+
+  it('reports selection, edits and deletion of an auto level', async () => {
+    const onAutoLevelSelected = vi.fn();
+    const onAutoLevelEdited = vi.fn();
+    const onAutoLevelDeleted = vi.fn();
+    await act(() =>
+      root.render(
+        <ChartCanvas
+          {...props}
+          onAutoLevelSelected={onAutoLevelSelected}
+          onAutoLevelEdited={onAutoLevelEdited}
+          onAutoLevelDeleted={onAutoLevelDeleted}
+        />,
+      ),
+    );
+    const id = 'pulse:auto-level:support:1:2';
+    const points = [{ timestamp: 1, price: 100 }];
+    const select = mocks.lineTools.subscribeLineToolsSingleClick.mock.calls[0][0];
+    const edit = mocks.lineTools.subscribeLineToolsAfterEdit.mock.calls[0][0];
+    select({
+      selectionState: 'selected',
+      selectedLineTool: { id, points, options: {}, toolType: 'HorizontalRay' },
+    });
+    edit({
+      stage: 'lineToolEdited',
+      selectedLineTool: { id, points, options: {}, toolType: 'HorizontalRay' },
+    });
+    mocks.lineTools.getSelectedLineTools.mockReturnValue(JSON.stringify([{ id }]));
+    container.querySelector('div')?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true }));
+
+    expect(onAutoLevelSelected).toHaveBeenCalledWith(id);
+    expect(onAutoLevelEdited).toHaveBeenCalledWith(id, points);
+    expect(onAutoLevelDeleted).toHaveBeenCalledWith(id);
   });
 });

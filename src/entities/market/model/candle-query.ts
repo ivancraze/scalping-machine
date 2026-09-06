@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getAggregateTrades, getCandles } from '../api/binance';
 import { subscribeAggregateTrades, subscribeKline } from '../api/binance-streams';
@@ -41,7 +41,7 @@ async function getCandlePage(
   };
 }
 
-export function useCandleHistoryQuery(symbol: string, interval: string) {
+export function useCandleHistoryQuery(symbol: string, interval: string, enabled = true) {
   return useInfiniteQuery({
     queryKey: marketQueryKeys.candleHistory(symbol, interval),
     queryFn: ({ pageParam, signal }) => getCandlePage(symbol, interval, pageParam, signal),
@@ -58,6 +58,7 @@ export function useCandleHistoryQuery(symbol: string, interval: string) {
     },
     maxPages: CANDLE_MAX_PAGES,
     staleTime: Infinity,
+    enabled,
   });
 }
 
@@ -85,7 +86,11 @@ export function useLiveCandleSubscription(symbol: string, interval: string, enab
     const queryKey = marketQueryKeys.latestCandles(symbol, interval);
     const resync = () => {
       void queryClient
-        .fetchQuery({ queryKey, queryFn: ({ signal }) => getCandles(symbol, interval, { limit: 2, signal }) })
+        .fetchQuery({
+          queryKey,
+          queryFn: ({ signal }) => getCandles(symbol, interval, { limit: 2, signal }),
+          staleTime: 0,
+        })
         .catch(() => undefined);
     };
     return subscribeKline(
@@ -96,6 +101,158 @@ export function useLiveCandleSubscription(symbol: string, interval: string, enab
       resync,
     );
   }, [enabled, interval, queryClient, symbol]);
+}
+
+export type ClosedCandleWindow = {
+  candles: Candle[];
+  current: Candle | null;
+};
+
+async function getClosedCandleWindow(
+  symbol: string,
+  interval: string,
+  historySize: number,
+  signal: AbortSignal,
+): Promise<ClosedCandleWindow> {
+  const limit = Math.min(historySize + 1, 1500);
+  const candles = await getCandles(symbol, interval, { limit, signal });
+  const firstCandle = candles[0];
+  const olderCandles =
+    historySize >= 1500 && candles.length === 1500 && firstCandle
+      ? await getCandles(symbol, interval, { limit: 1, endTime: firstCandle[0] - 1, signal })
+      : [];
+  return {
+    candles: [...olderCandles, ...candles.slice(0, -1)].slice(-historySize),
+    current: candles.at(-1) ?? null,
+  };
+}
+
+export function useClosedCandleWindowQuery(
+  symbol: string,
+  interval: string,
+  historySize: number,
+  enabled: boolean,
+) {
+  return useQuery({
+    queryKey: marketQueryKeys.closedCandleWindow(symbol, interval, historySize),
+    queryFn: ({ signal }) => getClosedCandleWindow(symbol, interval, historySize, signal),
+    staleTime: 0,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    enabled,
+  });
+}
+
+function appendClosedCandle(candles: Candle[], candle: Candle, historySize: number) {
+  const previous = candles.at(-1);
+  if (!previous || candle[0] > previous[0]) return [...candles, candle].slice(-historySize);
+  if (candle[0] === previous[0]) return [...candles.slice(0, -1), candle];
+  return candles;
+}
+
+export function synchronizeClosedCandleWindow(
+  fetched: ClosedCandleWindow,
+  cached: ClosedCandleWindow | undefined,
+  streamCandles: Candle[],
+  historySize: number,
+): ClosedCandleWindow {
+  let current = fetched.current;
+  if (cached?.current && (!current || cached.current[0] > current[0])) current = cached.current;
+  for (const candle of streamCandles) {
+    if (!current || candle[0] >= current[0]) current = candle;
+  }
+  const candlesByTime = new Map<number, Candle>();
+  const addWindow = (window: ClosedCandleWindow | undefined) => {
+    for (const candle of window?.candles ?? []) candlesByTime.set(candle[0], candle);
+    if (window?.current && current && window.current[0] < current[0])
+      candlesByTime.set(window.current[0], window.current);
+  };
+  addWindow(cached);
+  addWindow(fetched);
+  for (const candle of streamCandles) {
+    if (current && candle[0] < current[0]) candlesByTime.set(candle[0], candle);
+  }
+  return {
+    candles: [...candlesByTime.values()]
+      .filter((candle) => !current || candle[0] < current[0])
+      .sort((left, right) => left[0] - right[0])
+      .slice(-historySize),
+    current,
+  };
+}
+
+export function useClosedCandleWindowSubscription(
+  symbol: string,
+  interval: string,
+  historySize: number,
+  enabled: boolean,
+) {
+  const queryClient = useQueryClient();
+  const currentCandleRef = useRef<Candle | null>(null);
+  useEffect(() => {
+    if (!enabled) {
+      currentCandleRef.current = null;
+      return;
+    }
+    const queryKey = marketQueryKeys.closedCandleWindow(symbol, interval, historySize);
+    currentCandleRef.current = queryClient.getQueryData<ClosedCandleWindow>(queryKey)?.current ?? null;
+    let resyncController: AbortController | null = null;
+    let resyncGeneration = 0;
+    let isResyncing = false;
+    let resyncStreamCandles = new Map<number, Candle>();
+    const resync = () => {
+      resyncController?.abort();
+      resyncController = new AbortController();
+      resyncGeneration += 1;
+      const generation = resyncGeneration;
+      isResyncing = true;
+      resyncStreamCandles = new Map();
+      void getClosedCandleWindow(symbol, interval, historySize, resyncController.signal)
+        .then((window) => {
+          if (generation !== resyncGeneration) return;
+          const synchronized = synchronizeClosedCandleWindow(
+            window,
+            queryClient.getQueryData<ClosedCandleWindow>(queryKey),
+            [...resyncStreamCandles.values()],
+            historySize,
+          );
+          queryClient.setQueryData<ClosedCandleWindow>(queryKey, synchronized);
+          if (
+            !currentCandleRef.current ||
+            (synchronized.current && synchronized.current[0] >= currentCandleRef.current[0])
+          )
+            currentCandleRef.current = synchronized.current;
+        })
+        .catch(() => undefined)
+        .finally(() => {
+          if (generation === resyncGeneration) isResyncing = false;
+        });
+    };
+    const unsubscribe = subscribeKline(
+      symbol,
+      interval,
+      (candle) => {
+        if (isResyncing) resyncStreamCandles.set(candle[0], candle);
+        const previousCurrent =
+          currentCandleRef.current ?? queryClient.getQueryData<ClosedCandleWindow>(queryKey)?.current;
+        if (!previousCurrent || candle[0] === previousCurrent[0]) {
+          currentCandleRef.current = candle;
+          return;
+        }
+        if (candle[0] < previousCurrent[0]) return;
+        currentCandleRef.current = candle;
+        queryClient.setQueryData<ClosedCandleWindow>(queryKey, (previous) => ({
+          candles: appendClosedCandle(previous?.candles ?? [], previousCurrent, historySize),
+          current: candle,
+        }));
+      },
+      resync,
+    );
+    return () => {
+      resyncController?.abort();
+      unsubscribe();
+    };
+  }, [enabled, historySize, interval, queryClient, symbol]);
 }
 
 export function useSecondCandlesQuery(symbol: string, secondsPerCandle: number | null) {
