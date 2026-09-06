@@ -5,3 +5,9 @@ export const binanceHttpClient = axios.create({
   timeout: 10_000,
   withCredentials: false,
 });
+
+export const binanceFuturesDataHttpClient = axios.create({
+  baseURL: 'https://fapi.binance.com/futures/data',
+  timeout: 10_000,
+  withCredentials: false,
+});

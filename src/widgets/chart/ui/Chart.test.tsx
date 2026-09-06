@@ -21,10 +21,24 @@ const mocks = vi.hoisted(() => ({
     fetchPreviousPage: vi.fn(),
     refetch: vi.fn(),
   },
+  openInterestHistory: {
+    data: { pages: [{ points: [], reachesOlderEnd: true }] },
+    hasNextPage: false,
+    isFetching: false,
+    isFetchNextPageError: false,
+    isError: false,
+    fetchNextPage: vi.fn(),
+    refetch: vi.fn(),
+  },
 }));
 
 vi.mock('antd', () => ({
-  Alert: () => null,
+  Alert: ({ title, action }: { title: ReactNode; action?: ReactNode }) => (
+    <div>
+      {title}
+      {action}
+    </div>
+  ),
   Button: ({ children, ...props }: ButtonHTMLAttributes<HTMLButtonElement>) => (
     <button {...props}>{children}</button>
   ),
@@ -66,8 +80,23 @@ vi.mock('../../../features/auto-levels', () => ({
     deleteLevel: vi.fn(),
   }),
 }));
+vi.mock('../../../features/chart-indicators', () => ({
+  ChartIndicators: () => null,
+  useChartIndicators: () => ({
+    settings: {
+      volume: { visible: true, upColor: '#09825f', downColor: '#a7294a', height: 112 },
+      openInterest: { visible: true, color: '#0f8bfd', height: 72 },
+    },
+    updateSettings: vi.fn(),
+    updateHeights: vi.fn(),
+    resetSettings: vi.fn(),
+  }),
+}));
 vi.mock('../../../entities/market', () => ({
   mergeCandlePages: () => mocks.candles,
+  mergeOpenInterestPages: () => [],
+  openInterestPeriodMilliseconds: () => 15 * 60_000,
+  openInterestPeriodForInterval: () => '15m',
   useCandleHistoryQuery: () => mocks.history,
   useLatestCandlesQuery: () => ({ data: [] }),
   useLiveCandleSubscription: vi.fn(),
@@ -75,6 +104,7 @@ vi.mock('../../../entities/market', () => ({
   useCorrelationToBtcQuery: () => ({ data: null }),
   useNatrQuery: () => ({ data: null }),
   useOpenInterestQuery: () => ({ data: undefined }),
+  useOpenInterestHistoryQuery: () => mocks.openInterestHistory,
 }));
 vi.mock('../lib/drawing-tools', () => ({ primaryDrawingTools: [], extraDrawingTools: [] }));
 vi.mock('../lib/timeframe-storage', () => ({
@@ -92,6 +122,10 @@ beforeEach(() => {
   mocks.history.isFetching = false;
   mocks.history.hasNextPage = true;
   mocks.history.fetchNextPage.mockReset().mockResolvedValue({ isError: true });
+  mocks.openInterestHistory.isFetchNextPageError = false;
+  mocks.openInterestHistory.isError = false;
+  mocks.openInterestHistory.fetchNextPage.mockReset();
+  mocks.openInterestHistory.refetch.mockReset();
   container = document.createElement('div');
   document.body.append(container);
   root = createRoot(container);
@@ -113,5 +147,20 @@ describe('Chart auto-level history loading', () => {
     await act(() => root.render(<Chart symbol="BTCUSDT" />));
 
     expect(mocks.history.fetchNextPage).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries only the failed OI page', async () => {
+    mocks.openInterestHistory.isFetchNextPageError = true;
+    mocks.openInterestHistory.isError = true;
+    await act(() => root.render(<Chart symbol="BTCUSDT" />));
+
+    const retry = [...container.querySelectorAll('button')].find(
+      (button) => button.textContent === 'Повторить',
+    );
+    expect(retry).toBeDefined();
+    await act(() => retry?.click());
+
+    expect(mocks.openInterestHistory.fetchNextPage).toHaveBeenCalledWith({ cancelRefetch: false });
+    expect(mocks.openInterestHistory.refetch).not.toHaveBeenCalled();
   });
 });

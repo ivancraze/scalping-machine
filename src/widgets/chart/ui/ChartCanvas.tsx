@@ -3,6 +3,7 @@ import {
   CandlestickSeries,
   createChart,
   HistogramSeries,
+  LineSeries,
   type IChartApi,
   type ISeriesApi,
   type Time,
@@ -17,8 +18,8 @@ import {
   chartOptions,
   chartThemeOptions,
   candleOptions,
+  openInterestOptions,
   volumeOptions,
-  volumeScaleMargins,
 } from '../lib/chart-options';
 import {
   removeSavedLineTools,
@@ -30,8 +31,9 @@ import {
 } from '../lib/line-tools-storage';
 import { syncAutoLevelLineTools } from '../lib/auto-level-line-tools';
 import { registerTools } from '../lib/register-tools';
-import { toCandlestick, toVolume, priceFormat } from '../lib/series-data';
-import type { Candle } from '../../../entities/market';
+import { toCandlestick, toOpenInterestSeriesData, toVolume, priceFormat } from '../lib/series-data';
+import type { Candle, OpenInterestPoint } from '../../../entities/market';
+import type { ChartIndicatorHeights, ChartIndicatorSettings } from '../../../features/chart-indicators';
 import {
   AUTO_LEVEL_ID_PREFIX,
   type AutoLevelPoint,
@@ -43,7 +45,9 @@ import styles from './ChartCanvas.module.scss';
 
 type CandleSeries = ISeriesApi<'Candlestick', Time>;
 type VolumeSeries = ISeriesApi<'Histogram', Time>;
+type OpenInterestSeries = ISeriesApi<'Line', Time>;
 type Viewport = { bars: number; rightOffset: number };
+type IndicatorLayout = { volume: boolean; openInterest: boolean };
 
 function lastLogicalIndex(candles: Candle[], latestCandles: Candle[]) {
   const historicalLastOpenTime = candles.at(-1)?.[0];
@@ -58,10 +62,42 @@ function intervalFromDataKey(dataKey: string) {
   return dataKey.slice(dataKey.lastIndexOf(':') + 1);
 }
 
+function readIndicatorHeights(
+  chart: IChartApi,
+  layout: IndicatorLayout,
+  fallback: ChartIndicatorHeights,
+): ChartIndicatorHeights {
+  const panes = chart.panes();
+  return {
+    openInterest: layout.openInterest
+      ? Math.round(panes[1]?.getHeight() ?? fallback.openInterest)
+      : fallback.openInterest,
+    volume: layout.volume
+      ? Math.round(panes[layout.openInterest ? 2 : 1]?.getHeight() ?? fallback.volume)
+      : fallback.volume,
+  };
+}
+
+function applyIndicatorHeights(chart: IChartApi, layout: IndicatorLayout, heights: ChartIndicatorHeights) {
+  const panes = chart.panes();
+  const totalHeight = panes.reduce((sum, pane) => sum + pane.getHeight(), 0);
+  const indicatorHeight =
+    (layout.openInterest ? heights.openInterest : 0) + (layout.volume ? heights.volume : 0);
+  panes[0]?.setStretchFactor(Math.max(30, totalHeight - indicatorHeight));
+  if (layout.openInterest) panes[1]?.setStretchFactor(heights.openInterest);
+  if (layout.volume) panes[layout.openInterest ? 2 : 1]?.setStretchFactor(heights.volume);
+}
+
 export function ChartCanvas({
   palette,
   candles,
   latestCandles,
+  indicatorSettings,
+  openInterest,
+  latestOpenInterest,
+  openInterestPeriod,
+  openInterestPeriodMs,
+  onIndicatorHeightsChange,
   dataKey,
   priceTickSize,
   onCandleChange,
@@ -86,6 +122,12 @@ export function ChartCanvas({
   palette: ChartPalette;
   candles: Candle[];
   latestCandles: Candle[];
+  indicatorSettings: ChartIndicatorSettings;
+  openInterest: OpenInterestPoint[];
+  latestOpenInterest: OpenInterestPoint | null;
+  openInterestPeriod: string;
+  openInterestPeriodMs: number;
+  onIndicatorHeightsChange: (heights: ChartIndicatorHeights) => void;
   dataKey: string;
   priceTickSize?: string;
   onCandleChange: (candle: Candle | null) => void;
@@ -111,12 +153,23 @@ export function ChartCanvas({
   const chartRef = useRef<IChartApi | null>(null);
   const candleRef = useRef<CandleSeries | null>(null);
   const volumeRef = useRef<VolumeSeries | null>(null);
+  const openInterestRef = useRef<OpenInterestSeries | null>(null);
   const lineToolsRef = useRef<ILineToolsPlugin | null>(null);
   const displayedDataKeyRef = useRef<string | null>(null);
   const hasInitialRangeRef = useRef(false);
   const pendingViewportRef = useRef<Viewport | null>(null);
   const previousCandlesRef = useRef<Candle[]>([]);
   const latestCandlesRef = useRef(latestCandles);
+  const latestOpenInterestRef = useRef(latestOpenInterest);
+  const volumeColorsRef = useRef({
+    upColor: indicatorSettings.volume.upColor,
+    downColor: indicatorSettings.volume.downColor,
+  });
+  const indicatorHeightsRef = useRef<ChartIndicatorHeights>({
+    volume: indicatorSettings.volume.height,
+    openInterest: indicatorSettings.openInterest.height,
+  });
+  const onIndicatorHeightsChangeRef = useRef(onIndicatorHeightsChange);
   const candlesByTimeRef = useRef(new Map<number, Candle>());
   const lastSeriesOpenTimeRef = useRef<number | null>(null);
   const lastSeriesLogicalIndexRef = useRef(-1);
@@ -142,6 +195,7 @@ export function ChartCanvas({
   const [ready, setReady] = useState(false);
   const initialPaletteRef = useRef(palette);
   const handledResetRequestRef = useRef(0);
+  const indicatorLayoutRef = useRef({ volume: false, openInterest: false });
 
   useEffect(() => {
     onDrawingCompleteRef.current = onDrawingComplete;
@@ -160,6 +214,25 @@ export function ChartCanvas({
   useEffect(() => {
     latestCandlesRef.current = latestCandles;
   }, [latestCandles]);
+
+  useEffect(() => {
+    latestOpenInterestRef.current = latestOpenInterest;
+  }, [latestOpenInterest]);
+
+  useEffect(() => {
+    volumeColorsRef.current = {
+      upColor: indicatorSettings.volume.upColor,
+      downColor: indicatorSettings.volume.downColor,
+    };
+  }, [indicatorSettings.volume.downColor, indicatorSettings.volume.upColor]);
+
+  useEffect(() => {
+    indicatorHeightsRef.current = {
+      volume: indicatorSettings.volume.height,
+      openInterest: indicatorSettings.openInterest.height,
+    };
+    onIndicatorHeightsChangeRef.current = onIndicatorHeightsChange;
+  }, [indicatorSettings.openInterest.height, indicatorSettings.volume.height, onIndicatorHeightsChange]);
 
   useEffect(() => {
     historyLoadingRef.current = {
@@ -182,8 +255,6 @@ export function ChartCanvas({
     });
     chart.applyOptions(chartThemeOptions(initialPaletteRef.current));
     const candleSeries = chart.addSeries(CandlestickSeries, candleOptions);
-    const volumeSeries = chart.addSeries(HistogramSeries, volumeOptions);
-    volumeSeries.priceScale().applyOptions({ scaleMargins: volumeScaleMargins });
     const lineTools = createLineToolsPlugin(chart, candleSeries);
     registerTools(lineTools);
     lineTools.setMagnetThreshold(8);
@@ -257,9 +328,31 @@ export function ChartCanvas({
     container.addEventListener('contextmenu', removeSelectedOnRightClick);
     chartRef.current = chart;
     candleRef.current = candleSeries;
-    volumeRef.current = volumeSeries;
     lineToolsRef.current = lineTools;
     setReady(true);
+    let pointerStartHeights: ChartIndicatorHeights | null = null;
+    const startPaneResize = () => {
+      pointerStartHeights = readIndicatorHeights(
+        chart,
+        indicatorLayoutRef.current,
+        indicatorHeightsRef.current,
+      );
+    };
+    const persistPaneResize = () => {
+      if (!pointerStartHeights) return;
+      const nextHeights = readIndicatorHeights(
+        chart,
+        indicatorLayoutRef.current,
+        indicatorHeightsRef.current,
+      );
+      const changed =
+        nextHeights.volume !== pointerStartHeights.volume ||
+        nextHeights.openInterest !== pointerStartHeights.openInterest;
+      pointerStartHeights = null;
+      if (changed) onIndicatorHeightsChangeRef.current(nextHeights);
+    };
+    container.addEventListener('pointerdown', startPaneResize);
+    window.addEventListener('pointerup', persistPaneResize);
     const observer = new ResizeObserver(([entry]) => {
       chart.applyOptions({ width: entry.contentRect.width, height: entry.contentRect.height });
     });
@@ -268,6 +361,8 @@ export function ChartCanvas({
       persistLineToolsRef.current();
       observer.disconnect();
       container.removeEventListener('contextmenu', removeSelectedOnRightClick);
+      container.removeEventListener('pointerdown', startPaneResize);
+      window.removeEventListener('pointerup', persistPaneResize);
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(loadHistoryNearEdge);
       chart.unsubscribeCrosshairMove(showCandleAtCrosshair);
       lineTools.unsubscribeLineToolsAfterEdit(afterEdit);
@@ -277,6 +372,7 @@ export function ChartCanvas({
       chartRef.current = null;
       candleRef.current = null;
       volumeRef.current = null;
+      openInterestRef.current = null;
       lineToolsRef.current = null;
       displayedDataKeyRef.current = null;
       hasInitialRangeRef.current = false;
@@ -286,6 +382,7 @@ export function ChartCanvas({
       lastSeriesOpenTimeRef.current = null;
       lastSeriesLogicalIndexRef.current = -1;
       displayedLineToolsStorageScopeRef.current = null;
+      indicatorLayoutRef.current = { volume: false, openInterest: false };
       onAutoLevelSelectedRef.current(null);
       setReady(false);
     };
@@ -301,7 +398,61 @@ export function ChartCanvas({
   }, [priceTickSize, ready]);
 
   useEffect(() => {
-    if (!ready || !candleRef.current || !volumeRef.current || !lineToolsRef.current) return;
+    if (!ready || !chartRef.current) return;
+    const chart = chartRef.current;
+    const nextLayout = {
+      volume: indicatorSettings.volume.visible,
+      openInterest: indicatorSettings.openInterest.visible,
+    };
+
+    if (!nextLayout.openInterest && openInterestRef.current) {
+      chart.removeSeries(openInterestRef.current);
+      openInterestRef.current = null;
+    }
+    if (!nextLayout.volume && volumeRef.current) {
+      chart.removeSeries(volumeRef.current);
+      volumeRef.current = null;
+    }
+    if (nextLayout.openInterest && !openInterestRef.current)
+      openInterestRef.current = chart.addSeries(
+        LineSeries,
+        openInterestOptions(indicatorSettings.openInterest.color, openInterestPeriod),
+        1,
+      );
+    if (nextLayout.volume && !volumeRef.current)
+      volumeRef.current = chart.addSeries(HistogramSeries, volumeOptions, nextLayout.openInterest ? 2 : 1);
+
+    openInterestRef.current?.applyOptions(
+      openInterestOptions(indicatorSettings.openInterest.color, openInterestPeriod),
+    );
+    if (openInterestRef.current) openInterestRef.current.moveToPane(1);
+    if (volumeRef.current) volumeRef.current.moveToPane(openInterestRef.current ? 2 : 1);
+
+    indicatorLayoutRef.current = nextLayout;
+  }, [
+    indicatorSettings.openInterest.color,
+    indicatorSettings.openInterest.visible,
+    indicatorSettings.volume.visible,
+    openInterestPeriod,
+    ready,
+  ]);
+
+  useEffect(() => {
+    if (!ready || !chartRef.current) return;
+    applyIndicatorHeights(chartRef.current, indicatorLayoutRef.current, {
+      openInterest: indicatorSettings.openInterest.height,
+      volume: indicatorSettings.volume.height,
+    });
+  }, [
+    indicatorSettings.openInterest.height,
+    indicatorSettings.openInterest.visible,
+    indicatorSettings.volume.height,
+    indicatorSettings.volume.visible,
+    ready,
+  ]);
+
+  useEffect(() => {
+    if (!ready || !candleRef.current || !lineToolsRef.current) return;
     const chart = chartRef.current;
     const keyChanged = displayedDataKeyRef.current !== dataKey;
     const previousCandles = previousCandlesRef.current;
@@ -324,7 +475,6 @@ export function ChartCanvas({
     const visibleRange = keyChanged ? null : currentVisibleRange;
     candlesByTimeRef.current = new Map(candles.map((candle) => [candle[0], candle]));
     candleRef.current.setData(candles.map(toCandlestick));
-    volumeRef.current.setData(candles.map(toVolume));
     if (displayedLineToolsStorageScopeRef.current !== lineToolsStorageScope) {
       persistLineToolsRef.current();
       lineToolsRef.current.removeAllLineTools();
@@ -336,7 +486,6 @@ export function ChartCanvas({
       candlesByTimeRef.current.set(candle[0], candle);
       if (lastSeriesOpenTimeRef.current !== null && candle[0] < lastSeriesOpenTimeRef.current) continue;
       candleRef.current.update(toCandlestick(candle));
-      volumeRef.current.update(toVolume(candle));
       lastSeriesOpenTimeRef.current = candle[0];
     }
     lastSeriesLogicalIndexRef.current = lastLogicalIndex(candles, latestCandlesRef.current);
@@ -368,6 +517,27 @@ export function ChartCanvas({
   }, [candles, dataKey, lineToolsStorageScope, ready]);
 
   useEffect(() => {
+    if (!ready || !volumeRef.current) return;
+    const colors = {
+      upColor: indicatorSettings.volume.upColor,
+      downColor: indicatorSettings.volume.downColor,
+    };
+    volumeRef.current.setData(candles.map((candle) => toVolume(candle, colors)));
+    const historicalLastOpenTime = candles.at(-1)?.[0];
+    for (const candle of latestCandlesRef.current) {
+      if (historicalLastOpenTime !== undefined && candle[0] < historicalLastOpenTime) continue;
+      volumeRef.current.update(toVolume(candle, colors));
+    }
+  }, [
+    candles,
+    dataKey,
+    indicatorSettings.volume.downColor,
+    indicatorSettings.volume.upColor,
+    indicatorSettings.volume.visible,
+    ready,
+  ]);
+
+  useEffect(() => {
     if (!ready || !lineToolsRef.current) return;
     const unsubscribe = subscribeToLineTools(lineToolsStorageScope, ({ sourceId, lineTools }) => {
       if (sourceId === lineToolsSourceId || !lineToolsRef.current) return;
@@ -393,7 +563,7 @@ export function ChartCanvas({
   }, [lineToolsSourceId, lineToolsStorageScope, ready]);
 
   useEffect(() => {
-    if (!ready || !candleRef.current || !volumeRef.current) return;
+    if (!ready || !candleRef.current) return;
     const chart = chartRef.current;
     const visibleRange = chart?.timeScale().getVisibleLogicalRange();
     let appendedBars = 0;
@@ -403,7 +573,7 @@ export function ChartCanvas({
       if (lastSeriesOpenTimeRef.current !== null && candle[0] > lastSeriesOpenTimeRef.current)
         appendedBars += 1;
       candleRef.current.update(toCandlestick(candle));
-      volumeRef.current.update(toVolume(candle));
+      volumeRef.current?.update(toVolume(candle, volumeColorsRef.current));
       lastSeriesOpenTimeRef.current = candle[0];
     }
     if (appendedBars > 0) {
@@ -416,6 +586,41 @@ export function ChartCanvas({
       }
     }
   }, [dataKey, latestCandles, ready]);
+
+  useEffect(() => {
+    if (!ready || !openInterestRef.current) return;
+    const displayedCandles = [...candles, ...latestCandlesRef.current];
+    const history = toOpenInterestSeriesData(openInterest, displayedCandles, openInterestPeriodMs);
+    openInterestRef.current.setData(history);
+    const latest = latestOpenInterestRef.current;
+    const alignedLatest = latest
+      ? toOpenInterestSeriesData([latest], displayedCandles, openInterestPeriodMs)[0]
+      : undefined;
+    const historicalLastTime = history.at(-1)?.time;
+    if (
+      alignedLatest &&
+      (historicalLastTime === undefined || Number(alignedLatest.time) >= Number(historicalLastTime))
+    )
+      openInterestRef.current.update(alignedLatest);
+  }, [candles, dataKey, indicatorSettings.openInterest.visible, openInterest, openInterestPeriodMs, ready]);
+
+  useEffect(() => {
+    if (!ready || !openInterestRef.current || !latestOpenInterest) return;
+    const displayedCandles = [...candles, ...latestCandlesRef.current];
+    const alignedLatest = toOpenInterestSeriesData(
+      [latestOpenInterest],
+      displayedCandles,
+      openInterestPeriodMs,
+    )[0];
+    const historicalLast = toOpenInterestSeriesData(
+      openInterest.slice(-1),
+      displayedCandles,
+      openInterestPeriodMs,
+    )[0];
+    if (!alignedLatest || (historicalLast && Number(alignedLatest.time) < Number(historicalLast.time)))
+      return;
+    openInterestRef.current.update(alignedLatest);
+  }, [candles, dataKey, latestOpenInterest, openInterest, openInterestPeriodMs, ready]);
 
   useEffect(() => {
     if (!tool || !lineToolsRef.current) return;

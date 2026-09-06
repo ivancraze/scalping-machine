@@ -22,11 +22,20 @@ const mocks = vi.hoisted(() => {
     applyOptions: vi.fn(),
     priceScale: () => scale,
     barsInLogicalRange: vi.fn(() => ({ barsBefore: 1000, barsAfter: 1 })),
+    moveToPane: vi.fn(),
   });
   const candle = series();
   const volume = series();
+  const openInterest = series();
+  const panes = [
+    { setHeight: vi.fn(), setStretchFactor: vi.fn(), getHeight: vi.fn(() => 400) },
+    { setHeight: vi.fn(), setStretchFactor: vi.fn(), getHeight: vi.fn(() => 72) },
+    { setHeight: vi.fn(), setStretchFactor: vi.fn(), getHeight: vi.fn(() => 112) },
+  ];
   const chart = {
     addSeries: vi.fn(),
+    removeSeries: vi.fn(),
+    panes: () => panes,
     applyOptions: vi.fn(),
     remove: vi.fn(),
     timeScale: () => scale,
@@ -50,13 +59,14 @@ const mocks = vi.hoisted(() => {
     createOrUpdateLineTool: vi.fn(),
     destroy: vi.fn(),
   };
-  return { scale, candle, volume, chart, lineTools, createChart: vi.fn(() => chart) };
+  return { scale, candle, volume, openInterest, panes, chart, lineTools, createChart: vi.fn(() => chart) };
 });
 
 vi.mock('lightweight-charts', () => ({
   createChart: mocks.createChart,
   CandlestickSeries: {},
   HistogramSeries: {},
+  LineSeries: {},
   ColorType: { Solid: 'solid' },
   CrosshairMode: { Normal: 0 },
   LineStyle: { Solid: 0, Dotted: 1, Dashed: 2, LargeDashed: 3 },
@@ -81,6 +91,15 @@ const props: ComponentProps<typeof ChartCanvas> = {
   },
   candles,
   latestCandles: [],
+  indicatorSettings: {
+    volume: { visible: true, upColor: '#09825f', downColor: '#a7294a', height: 112 },
+    openInterest: { visible: true, color: '#0f8bfd', height: 72 },
+  },
+  openInterest: [],
+  latestOpenInterest: null,
+  openInterestPeriod: '5м',
+  openInterestPeriodMs: 5 * 60_000,
+  onIndicatorHeightsChange: noop,
   dataKey: 'BTCUSDT:1m',
   priceTickSize: '0.01',
   onCandleChange: noop,
@@ -107,7 +126,13 @@ let root: Root;
 let container: HTMLDivElement;
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.chart.addSeries.mockReturnValueOnce(mocks.candle).mockReturnValueOnce(mocks.volume);
+  mocks.panes[0].getHeight.mockReturnValue(400);
+  mocks.panes[1].getHeight.mockReturnValue(72);
+  mocks.panes[2].getHeight.mockReturnValue(112);
+  mocks.chart.addSeries
+    .mockReturnValueOnce(mocks.candle)
+    .mockReturnValueOnce(mocks.openInterest)
+    .mockReturnValueOnce(mocks.volume);
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal(
     'ResizeObserver',
@@ -156,6 +181,164 @@ describe('chart UI migration regressions', () => {
     await act(() => root.render(<ChartCanvas {...props} palette={light} latestCandles={[live]} />));
     expect(mocks.candle.update).toHaveBeenCalledWith(expect.objectContaining({ close: 115 }));
     expect(mocks.candle.setData).toHaveBeenCalledTimes(dataCalls);
+  });
+
+  it('toggles native indicator panes without recreating the chart or changing the visible range', async () => {
+    await act(() => root.render(<ChartCanvas {...props} />));
+    const rangeCalls = mocks.scale.setVisibleLogicalRange.mock.calls.length;
+    const withoutOpenInterest = {
+      ...props.indicatorSettings,
+      openInterest: { ...props.indicatorSettings.openInterest, visible: false },
+    };
+
+    await act(() => root.render(<ChartCanvas {...props} indicatorSettings={withoutOpenInterest} />));
+
+    expect(mocks.createChart).toHaveBeenCalledTimes(1);
+    expect(mocks.chart.removeSeries).toHaveBeenCalledWith(mocks.openInterest);
+    expect(mocks.volume.moveToPane).toHaveBeenLastCalledWith(1);
+    expect(mocks.scale.setVisibleLogicalRange).toHaveBeenCalledTimes(rangeCalls);
+  });
+
+  it('reports user-resized indicator pane heights', async () => {
+    const onIndicatorHeightsChange = vi.fn();
+    await act(() =>
+      root.render(<ChartCanvas {...props} onIndicatorHeightsChange={onIndicatorHeightsChange} />),
+    );
+    const chartElement = container.firstElementChild;
+    expect(chartElement).not.toBeNull();
+
+    await act(() => chartElement?.dispatchEvent(new Event('pointerdown', { bubbles: true })));
+    mocks.panes[1].getHeight.mockReturnValue(140);
+    mocks.panes[2].getHeight.mockReturnValue(180);
+    await act(() => window.dispatchEvent(new Event('pointerup')));
+
+    expect(onIndicatorHeightsChange).toHaveBeenCalledWith({ openInterest: 140, volume: 180 });
+  });
+
+  it('restores persisted pane heights and applies defaults after reset', async () => {
+    const resizedSettings = {
+      volume: { ...props.indicatorSettings.volume, height: 180 },
+      openInterest: { ...props.indicatorSettings.openInterest, height: 140 },
+    };
+
+    await act(() => root.render(<ChartCanvas {...props} indicatorSettings={resizedSettings} />));
+
+    expect(mocks.panes[0].setStretchFactor).toHaveBeenLastCalledWith(264);
+    expect(mocks.panes[1].setStretchFactor).toHaveBeenLastCalledWith(140);
+    expect(mocks.panes[2].setStretchFactor).toHaveBeenLastCalledWith(180);
+
+    await act(() => root.render(<ChartCanvas {...props} />));
+
+    expect(mocks.panes[0].setStretchFactor).toHaveBeenLastCalledWith(400);
+    expect(mocks.panes[1].setStretchFactor).toHaveBeenLastCalledWith(72);
+    expect(mocks.panes[2].setStretchFactor).toHaveBeenLastCalledWith(112);
+  });
+
+  it('restores a removed indicator series and its data without recreating the chart', async () => {
+    const history = [{ timestamp: 1_757_030_400_000, valueUsd: 500_000_000 }];
+    await act(() => root.render(<ChartCanvas {...props} openInterest={history} />));
+    const withoutOpenInterest = {
+      ...props.indicatorSettings,
+      openInterest: { ...props.indicatorSettings.openInterest, visible: false },
+    };
+    await act(() =>
+      root.render(<ChartCanvas {...props} openInterest={history} indicatorSettings={withoutOpenInterest} />),
+    );
+    mocks.chart.addSeries.mockReturnValueOnce(mocks.openInterest);
+    mocks.openInterest.setData.mockClear();
+
+    await act(() => root.render(<ChartCanvas {...props} openInterest={history} />));
+
+    expect(mocks.createChart).toHaveBeenCalledTimes(1);
+    expect(mocks.chart.addSeries).toHaveBeenLastCalledWith(expect.anything(), expect.anything(), 1);
+    expect(mocks.openInterest.setData).toHaveBeenCalledWith([{ time: 1_757_030_400, value: 500_000_000 }]);
+  });
+
+  it('loads and incrementally updates open interest in its own pane', async () => {
+    const openInterestCandles: Candle[] = [candles[0], [1_757_030_700_000, '110', '120', '100', '115', '70']];
+    const history = [
+      { timestamp: 1_757_030_400_000, valueUsd: 500_000_000 },
+      { timestamp: 1_757_030_700_000, valueUsd: 510_000_000 },
+    ];
+    await act(() =>
+      root.render(<ChartCanvas {...props} candles={openInterestCandles} openInterest={history} />),
+    );
+
+    expect(mocks.openInterest.moveToPane).toHaveBeenCalledWith(1);
+    expect(mocks.volume.moveToPane).toHaveBeenCalledWith(2);
+    expect(mocks.openInterest.setData).toHaveBeenCalledWith([
+      { time: 1_757_030_400, value: 500_000_000 },
+      { time: 1_757_030_700, value: 510_000_000 },
+    ]);
+
+    const liveCandle: Candle = [1_757_031_000_000, '115', '125', '105', '120', '80'];
+    const latest = { timestamp: 1_757_031_030_000, valueUsd: 520_000_000 };
+    await act(() =>
+      root.render(
+        <ChartCanvas
+          {...props}
+          candles={openInterestCandles}
+          latestCandles={[liveCandle]}
+          openInterest={history}
+          latestOpenInterest={latest}
+        />,
+      ),
+    );
+    expect(mocks.openInterest.update).toHaveBeenLastCalledWith({
+      time: 1_757_031_000,
+      value: 520_000_000,
+    });
+  });
+
+  it('does not add a live OI timestamp before a matching candle exists', async () => {
+    const futureBucketSnapshot = {
+      timestamp: 1_757_031_030_000,
+      valueUsd: 520_000_000,
+    };
+
+    await act(() => root.render(<ChartCanvas {...props} latestOpenInterest={futureBucketSnapshot} />));
+
+    expect(mocks.openInterest.update).not.toHaveBeenCalled();
+  });
+
+  it('changes volume colors without replacing candle history', async () => {
+    await act(() => root.render(<ChartCanvas {...props} />));
+    const candleDataCalls = mocks.candle.setData.mock.calls.length;
+    const volumeDataCalls = mocks.volume.setData.mock.calls.length;
+
+    await act(() =>
+      root.render(
+        <ChartCanvas
+          {...props}
+          indicatorSettings={{
+            ...props.indicatorSettings,
+            volume: { ...props.indicatorSettings.volume, upColor: '#00ff00' },
+          }}
+        />,
+      ),
+    );
+
+    expect(mocks.candle.setData).toHaveBeenCalledTimes(candleDataCalls);
+    expect(mocks.volume.setData).toHaveBeenCalledTimes(volumeDataCalls + 1);
+  });
+
+  it('changes pane heights without replacing volume history', async () => {
+    await act(() => root.render(<ChartCanvas {...props} />));
+    const volumeDataCalls = mocks.volume.setData.mock.calls.length;
+
+    await act(() =>
+      root.render(
+        <ChartCanvas
+          {...props}
+          indicatorSettings={{
+            volume: { ...props.indicatorSettings.volume, height: 180 },
+            openInterest: { ...props.indicatorSettings.openInterest, height: 140 },
+          }}
+        />,
+      ),
+    );
+
+    expect(mocks.volume.setData).toHaveBeenCalledTimes(volumeDataCalls);
   });
 
   it('consumes a reset once and preserves another chart’s saved drawings after switching symbols', async () => {

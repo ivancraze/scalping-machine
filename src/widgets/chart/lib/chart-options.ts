@@ -5,6 +5,7 @@ import {
   type DeepPartial,
   type CandlestickSeriesPartialOptions,
   type HistogramSeriesPartialOptions,
+  type LineSeriesPartialOptions,
 } from 'lightweight-charts';
 import { localTickMarkFormatter, localTimeFormatter } from './time-format';
 import type { ChartPalette } from '../model/types';
@@ -38,6 +39,14 @@ export const candleOptions: CandlestickSeriesPartialOptions = {
 };
 export const volumeOptions: HistogramSeriesPartialOptions = {
   priceFormat: { type: 'volume' },
-  priceScaleId: '',
+  priceLineVisible: false,
+  title: 'Объём',
 };
-export const volumeScaleMargins = { top: 0.83, bottom: 0 };
+
+export const openInterestOptions = (color: string, period: string): LineSeriesPartialOptions => ({
+  color,
+  lineWidth: 2,
+  priceFormat: { type: 'volume' },
+  priceLineVisible: false,
+  title: `OI · ${period}`,
+});

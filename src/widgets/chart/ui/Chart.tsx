@@ -3,13 +3,18 @@ import { Alert, Button, Dropdown, Segmented, Spin, Tooltip, theme, Typography } 
 import { AimOutlined, EllipsisOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons';
 import { ResetChartObjects } from '../../../features/reset-chart-objects';
 import { AutoLevelsPanel, useAutoLevels } from '../../../features/auto-levels';
+import { ChartIndicators, useChartIndicators } from '../../../features/chart-indicators';
 import {
   mergeCandlePages,
+  mergeOpenInterestPages,
+  openInterestPeriodMilliseconds,
+  openInterestPeriodForInterval,
   useCandleHistoryQuery,
   useLiveCandleSubscription,
   useLatestCandlesQuery,
   useNatrQuery,
   useOpenInterestQuery,
+  useOpenInterestHistoryQuery,
   useSecondCandlesQuery,
   useCorrelationToBtcQuery,
   type Candle,
@@ -50,6 +55,7 @@ export function Chart({ symbol, selected }: { symbol: string; selected?: MarketR
   const [isToolsOpen, setIsToolsOpen] = useState(false);
   const [isAssetDataExpanded, setIsAssetDataExpanded] = useState(false);
   const [selectedAutoLevelId, setSelectedAutoLevelId] = useState<string | null>(null);
+  const chartIndicators = useChartIndicators();
   const interval = intervals[timeframe];
   const secondsPerCandle = interval.endsWith('s') ? Number.parseInt(interval, 10) : null;
   const dataKey = `${symbol}:${interval}`;
@@ -67,8 +73,25 @@ export function Chart({ symbol, selected }: { symbol: string; selected?: MarketR
   const secondCandles = useSecondCandlesQuery(symbol, secondsPerCandle);
   const correlationQuery = useCorrelationToBtcQuery(symbol, Boolean(symbol));
   const natrQuery = useNatrQuery(symbol);
-  const openInterestQuery = useOpenInterestQuery(symbol);
+  const openInterestQuery = useOpenInterestQuery(symbol, selected?.price);
+  const openInterestPeriod = openInterestPeriodForInterval(interval);
+  const openInterestPeriodLabel = openInterestPeriod.replace('m', 'м').replace('h', 'ч').replace('d', 'д');
+  const openInterestHistory = useOpenInterestHistoryQuery(
+    symbol,
+    openInterestPeriod,
+    chartIndicators.settings.openInterest.visible,
+  );
+  const {
+    fetchNextPage: fetchOlderOpenInterest,
+    hasNextPage: hasOlderOpenInterest,
+    isFetching: isFetchingOpenInterest,
+    isFetchNextPageError: hasOlderOpenInterestError,
+  } = openInterestHistory;
   const candles = useMemo(() => mergeCandlePages(candleHistory.data?.pages), [candleHistory.data?.pages]);
+  const openInterestPoints = useMemo(
+    () => mergeOpenInterestPages(openInterestHistory.data?.pages),
+    [openInterestHistory.data?.pages],
+  );
   const displayedCandles = secondsPerCandle ? (secondCandles.data ?? EMPTY_CANDLES) : candles;
   const latestCandlesForCanvas =
     !secondsPerCandle && includesCurrentEnd ? (latestCandles.data ?? EMPTY_CANDLES) : EMPTY_CANDLES;
@@ -80,6 +103,29 @@ export function Chart({ symbol, selected }: { symbol: string; selected?: MarketR
     displayedIncludesCurrentEnd: includesCurrentEnd,
     displayedCanLoadOlder: Boolean(candleHistory.hasNextPage),
   });
+  useEffect(() => {
+    const earliestCandleTimestamp = displayedCandles[0]?.[0];
+    const earliestOpenInterestTimestamp = openInterestPoints[0]?.timestamp;
+    if (
+      !chartIndicators.settings.openInterest.visible ||
+      earliestCandleTimestamp === undefined ||
+      earliestOpenInterestTimestamp === undefined ||
+      earliestOpenInterestTimestamp <= earliestCandleTimestamp ||
+      !hasOlderOpenInterest ||
+      isFetchingOpenInterest ||
+      hasOlderOpenInterestError
+    )
+      return;
+    void fetchOlderOpenInterest({ cancelRefetch: false });
+  }, [
+    chartIndicators.settings.openInterest.visible,
+    displayedCandles,
+    fetchOlderOpenInterest,
+    hasOlderOpenInterest,
+    hasOlderOpenInterestError,
+    isFetchingOpenInterest,
+    openInterestPoints,
+  ]);
   useEffect(() => {
     if (
       !autoLevels.settings.enabled ||
@@ -117,22 +163,30 @@ export function Chart({ symbol, selected }: { symbol: string; selected?: MarketR
           {symbol} · {timeframe}
         </Typography.Text>
 
-        <div className={styles.timeframes}>
-          <Segmented<string>
-            aria-label="Таймфрейм"
-            value={timeframe}
-            onChange={(nextTimeframe) => {
-              setTimeframe(nextTimeframe);
-              saveChartTimeframe(nextTimeframe);
-            }}
-            options={timeframes.map((tf) => ({
-              value: tf,
-              label: tf,
-              tooltip: tf.endsWith('с')
-                ? 'Агрегируется из последних Binance Futures aggTrade и live-потока'
-                : undefined,
-            }))}
+        <div className={styles['chart-panel-controls']}>
+          <ChartIndicators
+            settings={chartIndicators.settings}
+            openInterestPeriod={openInterestPeriodLabel}
+            onChange={chartIndicators.updateSettings}
+            onReset={chartIndicators.resetSettings}
           />
+          <div className={styles.timeframes}>
+            <Segmented<string>
+              aria-label="Таймфрейм"
+              value={timeframe}
+              onChange={(nextTimeframe) => {
+                setTimeframe(nextTimeframe);
+                saveChartTimeframe(nextTimeframe);
+              }}
+              options={timeframes.map((tf) => ({
+                value: tf,
+                label: tf,
+                tooltip: tf.endsWith('с')
+                  ? 'Агрегируется из последних Binance Futures aggTrade и live-потока'
+                  : undefined,
+              }))}
+            />
+          </div>
         </div>
       </div>
 
@@ -228,16 +282,14 @@ export function Chart({ symbol, selected }: { symbol: string; selected?: MarketR
             {isAssetDataExpanded && <span>Открытый интерес (≈ USD)</span>}
             {isAssetDataExpanded ? (
               <strong>
-                {openInterestQuery.data === undefined || !selected
-                  ? '—'
-                  : `≈${compact(openInterestQuery.data * selected.price)}$`}
+                {openInterestQuery.data === undefined ? '—' : `≈${compact(openInterestQuery.data.valueUsd)}$`}
               </strong>
             ) : (
               <Tooltip title="Открытый интерес">
                 <strong>
-                  {openInterestQuery.data === undefined || !selected
+                  {openInterestQuery.data === undefined
                     ? '—'
-                    : `≈${compact(openInterestQuery.data * selected.price)}$`}
+                    : `≈${compact(openInterestQuery.data.valueUsd)}$`}
                 </strong>
               </Tooltip>
             )}
@@ -325,6 +377,12 @@ export function Chart({ symbol, selected }: { symbol: string; selected?: MarketR
           palette={palette}
           candles={displayedCandles}
           latestCandles={latestCandlesForCanvas}
+          indicatorSettings={chartIndicators.settings}
+          openInterest={openInterestPoints}
+          latestOpenInterest={openInterestQuery.data ?? null}
+          openInterestPeriod={openInterestPeriodLabel}
+          openInterestPeriodMs={openInterestPeriodMilliseconds(openInterestPeriod)}
+          onIndicatorHeightsChange={chartIndicators.updateHeights}
           dataKey={dataKey}
           priceTickSize={selected?.priceTickSize}
           onCandleChange={() => undefined}
@@ -355,6 +413,25 @@ export function Chart({ symbol, selected }: { symbol: string; selected?: MarketR
         {!secondsPerCandle && candleHistory.isPending && (
           <div className={styles['query-status']} role="status">
             <Spin size="small" /> Загрузка свечей…
+          </div>
+        )}
+        {chartIndicators.settings.openInterest.visible && openInterestHistory.isError && (
+          <div className={styles['indicator-status']}>
+            <Alert
+              type="warning"
+              showIcon
+              title="История OI недоступна"
+              action={
+                <Button
+                  onClick={() => {
+                    if (hasOlderOpenInterestError) void fetchOlderOpenInterest({ cancelRefetch: false });
+                    else void openInterestHistory.refetch();
+                  }}
+                >
+                  Повторить
+                </Button>
+              }
+            />
           </div>
         )}
         {!secondsPerCandle && (candleHistory.isFetchingNextPage || candleHistory.isFetchingPreviousPage) && (

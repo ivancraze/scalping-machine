@@ -2,7 +2,8 @@ import { throwRequestError } from '../../../shared/api/http-client';
 import type { Candle } from '../model/candle';
 import type { MarketDepthLevel } from '../model/depth';
 import type { MarketRow, MarketTrade } from '../model/market';
-import { binanceHttpClient } from './binance-client';
+import type { OpenInterestPeriod, OpenInterestPoint, OpenInterestSnapshot } from '../model/open-interest';
+import { binanceFuturesDataHttpClient, binanceHttpClient } from './binance-client';
 
 const asNumber = (value: string | number) => Number(value);
 
@@ -18,7 +19,11 @@ type FuturesSymbol = {
 type MarketTicker = Record<string, string>;
 type BinanceCandle = [number, string, string, string, string, string, ...unknown[]];
 type BinanceAggregateTrade = { T: number; p: string; q: string };
-type BinanceOpenInterest = { openInterest: string };
+type BinanceOpenInterest = { openInterest: string; time: number };
+type BinanceOpenInterestPoint = {
+  sumOpenInterestValue: string;
+  timestamp: number;
+};
 export type Instruments = Record<string, string>;
 
 export type CandleRequest = {
@@ -105,15 +110,37 @@ export async function getAggregateTrades(symbol: string, signal?: AbortSignal): 
   }
 }
 
-export async function getOpenInterest(symbol: string, signal?: AbortSignal): Promise<number> {
+export async function getOpenInterest(symbol: string, signal?: AbortSignal): Promise<OpenInterestSnapshot> {
   try {
     const { data } = await binanceHttpClient.get<BinanceOpenInterest>('/openInterest', {
       params: { symbol },
       signal,
     });
-    return asNumber(data.openInterest);
+    return { timestamp: data.time, quantity: asNumber(data.openInterest) };
   } catch (error) {
     throwRequestError(error, 'Open interest unavailable');
+  }
+}
+
+export async function getOpenInterestHistory(
+  symbol: string,
+  period: OpenInterestPeriod,
+  { limit = 500, endTime, signal }: { limit?: number; endTime?: number; signal?: AbortSignal } = {},
+): Promise<OpenInterestPoint[]> {
+  try {
+    const { data } = await binanceFuturesDataHttpClient.get<BinanceOpenInterestPoint[]>('/openInterestHist', {
+      params: { symbol, period, limit, endTime },
+      signal,
+    });
+    return data
+      .map(({ timestamp, sumOpenInterestValue }) => ({
+        timestamp,
+        valueUsd: asNumber(sumOpenInterestValue),
+      }))
+      .filter(({ timestamp, valueUsd }) => Number.isFinite(timestamp) && Number.isFinite(valueUsd))
+      .sort((left, right) => left.timestamp - right.timestamp);
+  } catch (error) {
+    throwRequestError(error, 'Open interest history unavailable');
   }
 }
 
