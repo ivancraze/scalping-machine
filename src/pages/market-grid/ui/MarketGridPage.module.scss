@@ -1,0 +1,75 @@
+.page {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  padding: 10px 12px 12px;
+}
+.controls {
+  display: flex;
+  min-height: 44px;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  white-space: nowrap;
+}
+.search {
+  width: 180px;
+  flex-shrink: 0;
+}
+.timeframes {
+  flex-shrink: 0;
+  font-weight: 600;
+}
+.indicators {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+.viewport {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  margin-top: 10px;
+}
+.grid {
+  display: grid;
+  grid-template-columns: repeat(var(--grid-columns), minmax(280px, 1fr));
+  gap: 8px;
+}
+.virtual-space {
+  position: relative;
+}
+.virtual-grid {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+}
+.pager {
+  display: flex;
+  min-height: 42px;
+  flex-shrink: 0;
+  align-items: end;
+  justify-content: center;
+}
+.expanded {
+  height: min(720px, calc(100vh - 150px));
+}
+.expanded article {
+  height: 100%;
+}
+.filters {
+  display: grid;
+  gap: 12px;
+}
+.filters label {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 180px;
+  align-items: center;
+  gap: 12px;
+}

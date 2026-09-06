@@ -6,6 +6,8 @@ export const marketQueryKeys = {
     [...marketQueryKeys.all, 'candles', 'history', symbol, interval] as const,
   latestCandles: (symbol: string, interval: string) =>
     [...marketQueryKeys.all, 'candles', 'latest', symbol, interval] as const,
+  gridCandles: (symbol: string, interval: string) =>
+    [...marketQueryKeys.all, 'candles', 'grid', symbol, interval] as const,
   closedCandleWindow: (symbol: string, interval: string, historySize: number) =>
     [...marketQueryKeys.all, 'candles', 'closed-window', symbol, interval, historySize] as const,
   secondCandles: (symbol: string, secondsPerCandle: number) =>
@@ -21,4 +23,8 @@ export const marketQueryKeys = {
   openInterest: (symbol: string) => [...marketQueryKeys.all, 'open-interest', symbol] as const,
   openInterestHistory: (symbol: string, period: string) =>
     [...marketQueryKeys.all, 'open-interest-history', symbol, period] as const,
+  gridOpenInterest: (symbol: string, period: string) =>
+    [...marketQueryKeys.all, 'open-interest', 'grid', symbol, period] as const,
+  gridOpenInterestSnapshot: (symbol: string) =>
+    [...marketQueryKeys.all, 'open-interest', 'grid-snapshot', symbol] as const,
 };

@@ -2,12 +2,14 @@ import { useEffect, useRef } from 'react';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getAggregateTrades, getCandles } from '../api/binance';
 import { subscribeAggregateTrades, subscribeKline } from '../api/binance-streams';
+import { runGridRequest } from '../api/grid-request-pool';
 import { aggregateSecondTrades, updateSecondCandle } from '../lib/second-candles';
 import type { Candle } from './candle';
 import { marketQueryKeys } from './query-keys';
 
 const CANDLE_PAGE_SIZE = 1000;
 const CANDLE_MAX_PAGES = 10;
+const GRID_CANDLE_LIMIT = 300;
 
 type CandlePageParam =
   | { direction: 'initial' }
@@ -69,6 +71,73 @@ export function useLatestCandlesQuery(symbol: string, interval: string, enabled 
     staleTime: Infinity,
     enabled,
   });
+}
+
+export function useGridCandlesQuery(symbol: string, interval: string, enabled = true) {
+  return useQuery({
+    queryKey: marketQueryKeys.gridCandles(symbol, interval),
+    queryFn: ({ signal }) =>
+      runGridRequest(signal, () => getCandles(symbol, interval, { limit: GRID_CANDLE_LIMIT, signal })),
+    staleTime: 0,
+    enabled,
+  });
+}
+
+export function mergeGridCandles(...windows: Array<Candle[] | undefined>): Candle[] {
+  const candlesByTime = new Map<number, Candle>();
+  for (const window of windows) {
+    for (const candle of window ?? []) candlesByTime.set(candle[0], candle);
+  }
+  return [...candlesByTime.values()].sort((left, right) => left[0] - right[0]).slice(-GRID_CANDLE_LIMIT);
+}
+
+export function updateGridCandleWindow(candles: Candle[] | undefined, candle: Candle): Candle[] {
+  if (!candles?.length) return [candle];
+  const previous = candles.at(-1);
+  if (!previous || candle[0] < previous[0]) return candles;
+  if (candle[0] === previous[0]) return [...candles.slice(0, -1), candle];
+  return [...candles, candle].slice(-GRID_CANDLE_LIMIT);
+}
+
+export function useGridCandleSubscription(symbol: string, interval: string, enabled: boolean) {
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    if (!enabled) return;
+    const queryKey = marketQueryKeys.gridCandles(symbol, interval);
+    let resyncCandles: Candle[] = [];
+    let isResyncing = false;
+    const resync = () => {
+      const cachedBeforeResync = queryClient.getQueryData<Candle[]>(queryKey);
+      isResyncing = true;
+      resyncCandles = [];
+      void queryClient
+        .fetchQuery({
+          queryKey,
+          queryFn: ({ signal }) =>
+            runGridRequest(signal, () => getCandles(symbol, interval, { limit: GRID_CANDLE_LIMIT, signal })),
+          staleTime: 0,
+        })
+        .then((fetched) => {
+          queryClient.setQueryData<Candle[]>(queryKey, (current) =>
+            mergeGridCandles(cachedBeforeResync, fetched, current, resyncCandles),
+          );
+        })
+        .catch(() => undefined)
+        .finally(() => {
+          isResyncing = false;
+          resyncCandles = [];
+        });
+    };
+    return subscribeKline(
+      symbol,
+      interval,
+      (candle) => {
+        if (isResyncing) resyncCandles = updateGridCandleWindow(resyncCandles, candle);
+        queryClient.setQueryData<Candle[]>(queryKey, (current) => updateGridCandleWindow(current, candle));
+      },
+      resync,
+    );
+  }, [enabled, interval, queryClient, symbol]);
 }
 
 export function mergeLatestCandle(candles: Candle[] | undefined, candle: Candle): Candle[] {

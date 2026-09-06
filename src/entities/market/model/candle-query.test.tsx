@@ -5,7 +5,13 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Candle } from './candle';
 import { marketQueryKeys } from './query-keys';
-import { useClosedCandleWindowQuery, useClosedCandleWindowSubscription } from './candle-query';
+import {
+  mergeGridCandles,
+  useClosedCandleWindowQuery,
+  useClosedCandleWindowSubscription,
+  useGridCandlesQuery,
+  useGridCandleSubscription,
+} from './candle-query';
 import { getCandles } from '../api/binance';
 import { subscribeKline } from '../api/binance-streams';
 
@@ -37,6 +43,12 @@ function Harness({
 }) {
   const query = useClosedCandleWindowQuery(symbol, interval, historySize, true);
   useClosedCandleWindowSubscription(symbol, interval, historySize, query.isSuccess && !query.isFetching);
+  return null;
+}
+
+function GridHarness({ symbol = 'BTCUSDT', interval = '1m' }: { symbol?: string; interval?: string }) {
+  const query = useGridCandlesQuery(symbol, interval, true);
+  useGridCandleSubscription(symbol, interval, query.isSuccess);
   return null;
 }
 
@@ -260,5 +272,82 @@ describe('closed candle analysis window', () => {
       candles: [ethClosed, ethCurrent],
       current: ethNext,
     });
+  });
+});
+
+describe('grid candle window', () => {
+  it('merges duplicate timestamps by newest input, sorts them, and keeps the latest 300 candles', () => {
+    const history = Array.from({ length: 301 }, (_, index) => candleAt(index * 60_000, String(index)));
+    const revised = candleAt(300 * 60_000, 'revised');
+
+    const merged = mergeGridCandles(history, [revised]);
+
+    expect(merged).toHaveLength(300);
+    expect(merged[0][0]).toBe(60_000);
+    expect(merged.at(-1)).toEqual(revised);
+  });
+
+  it('lets a reconnect REST result replace the pre-resync partial websocket candle', async () => {
+    await act(() =>
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <GridHarness />
+        </QueryClientProvider>,
+      ),
+    );
+    await act(async () => vi.waitFor(() => expect(vi.mocked(subscribeKline)).toHaveBeenCalledTimes(1)));
+    const [, , onCandle, resync] = vi.mocked(subscribeKline).mock.calls[0];
+    const revisedCurrent: Candle = [60_000, '100', '104', '98', '103', '4'];
+    act(() => onCandle(revisedCurrent));
+
+    let resolveResync: (candles: Candle[]) => void = () => undefined;
+    const finalizedResync = new Promise<Candle[]>((resolve) => {
+      resolveResync = resolve;
+    });
+    const finalizedCurrent: Candle = [60_000, '100', '105', '98', '104', '5'];
+    vi.mocked(getCandles).mockReturnValueOnce(finalizedResync);
+    expect(resync).toBeTypeOf('function');
+    act(() => resync?.());
+    await act(async () => {
+      resolveResync([closed, finalizedCurrent]);
+      await finalizedResync;
+      await Promise.resolve();
+    });
+
+    expect(queryClient.getQueryData(marketQueryKeys.gridCandles('BTCUSDT', '1m'))).toEqual([
+      closed,
+      finalizedCurrent,
+    ]);
+  });
+
+  it('keeps a newer stream candle received while reconnect resync is pending', async () => {
+    await act(() =>
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <GridHarness />
+        </QueryClientProvider>,
+      ),
+    );
+    await act(async () => vi.waitFor(() => expect(vi.mocked(subscribeKline)).toHaveBeenCalledTimes(1)));
+    const [, , onCandle, resync] = vi.mocked(subscribeKline).mock.calls[0];
+    let resolveResync: (candles: Candle[]) => void = () => undefined;
+    const pendingResync = new Promise<Candle[]>((resolve) => {
+      resolveResync = resolve;
+    });
+    vi.mocked(getCandles).mockReturnValueOnce(pendingResync);
+    expect(resync).toBeTypeOf('function');
+    act(() => resync?.());
+    const streamedCurrent: Candle = [60_000, '100', '106', '97', '105', '6'];
+    act(() => onCandle(streamedCurrent));
+    await act(async () => {
+      resolveResync([closed, current]);
+      await pendingResync;
+      await Promise.resolve();
+    });
+
+    expect(queryClient.getQueryData(marketQueryKeys.gridCandles('BTCUSDT', '1m'))).toEqual([
+      closed,
+      streamedCurrent,
+    ]);
   });
 });

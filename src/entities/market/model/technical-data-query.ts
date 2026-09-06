@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getCandles, getOpenInterest } from '../api/binance';
+import { runGridRequest } from '../api/grid-request-pool';
 import type { OpenInterestPoint } from './open-interest';
 import { natrFromCandles } from '../lib/natr';
 import { marketQueryKeys } from './query-keys';
@@ -39,14 +40,27 @@ export function useNatrsQuery(symbols: string[], enabled: boolean) {
   });
 }
 
-export function useOpenInterestQuery(symbol: string, price?: number) {
+export function useOpenInterestQuery(symbol: string, price?: number, enabled = true) {
   return useQuery({
     queryKey: marketQueryKeys.openInterest(symbol),
     queryFn: async ({ signal }): Promise<OpenInterestPoint> => {
       const snapshot = await getOpenInterest(symbol, signal);
       return { timestamp: snapshot.timestamp, valueUsd: snapshot.quantity * (price ?? 0) };
     },
-    enabled: Boolean(symbol) && price !== undefined && price > 0,
+    enabled: enabled && Boolean(symbol) && price !== undefined && price > 0,
+    staleTime: 30_000,
+    refetchInterval: 30_000,
+  });
+}
+
+export function useGridOpenInterestSnapshotQuery(symbol: string, price?: number, enabled = true) {
+  return useQuery({
+    queryKey: marketQueryKeys.gridOpenInterestSnapshot(symbol),
+    queryFn: async ({ signal }): Promise<OpenInterestPoint> => {
+      const snapshot = await runGridRequest(signal, () => getOpenInterest(symbol, signal));
+      return { timestamp: snapshot.timestamp, valueUsd: snapshot.quantity * (price ?? 0) };
+    },
+    enabled: enabled && Boolean(symbol) && price !== undefined && price > 0,
     staleTime: 30_000,
     refetchInterval: 30_000,
   });

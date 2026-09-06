@@ -1,5 +1,6 @@
-import { useInfiniteQuery } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { getOpenInterestHistory } from '../api/binance';
+import { runGridRequest } from '../api/grid-request-pool';
 import type { OpenInterestPeriod, OpenInterestPoint } from './open-interest';
 import { marketQueryKeys } from './query-keys';
 
@@ -46,6 +47,16 @@ export function useOpenInterestHistoryQuery(symbol: string, period: OpenInterest
       return { direction: 'older', endTime: firstPoint.timestamp - 1 };
     },
     staleTime: Infinity,
+    enabled,
+  });
+}
+
+export function useGridOpenInterestQuery(symbol: string, period: OpenInterestPeriod, enabled: boolean) {
+  return useQuery({
+    queryKey: marketQueryKeys.gridOpenInterest(symbol, period),
+    queryFn: ({ signal }) =>
+      runGridRequest(signal, () => getOpenInterestHistory(symbol, period, { limit: 120, signal })),
+    staleTime: 60_000,
     enabled,
   });
 }

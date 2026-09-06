@@ -1,0 +1,55 @@
+.card {
+  display: grid;
+  min-width: 0;
+  height: 360px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  grid-template-rows: 38px 30px minmax(0, 1fr);
+}
+.header,
+.metrics {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.actions {
+  display: flex;
+  margin-left: auto;
+}
+.metrics {
+  gap: 14px;
+  overflow-x: auto;
+  color: var(--text-secondary);
+  font-size: 11px;
+  white-space: nowrap;
+  scrollbar-width: none;
+}
+.chart {
+  position: relative;
+  display: grid;
+  min-height: 0;
+  place-items: center;
+}
+.chart > :first-child {
+  grid-area: 1 / 1;
+  min-width: 0;
+}
+.overlay {
+  z-index: 1;
+  grid-area: 1 / 1;
+}
+.paused {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+.green {
+  color: var(--positive);
+}
+.red {
+  color: var(--negative);
+}

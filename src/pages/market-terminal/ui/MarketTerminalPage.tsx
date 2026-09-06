@@ -1,40 +1,25 @@
-import { Button, Menu, Space, Tag, Tooltip } from 'antd';
-import {
-  AppstoreOutlined,
-  LineChartOutlined,
-  ReloadOutlined,
-  SettingOutlined,
-  TableOutlined,
-} from '@ant-design/icons';
-import { ThemeSwitch } from '../../../features/theme-switch';
-import { useSelectedMarketSymbol } from '../../../features/select-market-symbol';
-import { useMarketQuery, type MarketRow } from '../../../entities/market';
+import { Button, Space, Tag, Tooltip } from 'antd';
+import { AppstoreOutlined, LineChartOutlined, ReloadOutlined, SettingOutlined } from '@ant-design/icons';
+import type { MarketRow } from '../../../entities/market';
 import { Chart } from '../../../widgets/chart';
 import { MarketList } from '../../../widgets/market-list';
 import styles from './MarketTerminalPage.module.scss';
 
-const EMPTY_MARKET: MarketRow[] = [];
-
-export default function MarketTerminalPage() {
-  const { symbol, setSymbol } = useSelectedMarketSymbol();
-  const marketQuery = useMarketQuery();
-  const market = marketQuery.data ?? EMPTY_MARKET;
+export default function MarketTerminalPage({
+  market,
+  symbol,
+  onSymbolChange,
+  onOpenGrid,
+}: {
+  market: MarketRow[];
+  symbol: string;
+  onSymbolChange: (symbol: string) => void;
+  onOpenGrid: () => void;
+}) {
   const selected = market.find((x) => x.symbol === symbol);
 
   return (
-    <div className={styles.terminal}>
-      <nav className={styles['global-nav']}>
-        <span className={styles.wordmark}>PULSE</span>
-        <Menu
-          className={styles.menu}
-          mode="horizontal"
-          selectedKeys={['watchlist']}
-          items={[{ key: 'watchlist', label: 'Список наблюдения', icon: <TableOutlined /> }]}
-        />
-        <div className={styles['nav-actions']}>
-          <ThemeSwitch />
-        </div>
-      </nav>
+    <div className={styles.page}>
       <div className={styles['workspace-bar']}>
         <Tag color="purple">{symbol.replace('USDT', '')}.F</Tag>
         <span className={styles['market-label']}>Binance USD-M · USDT Perpetual</span>
@@ -48,14 +33,14 @@ export default function MarketTerminalPage() {
           <Tooltip title="Настройки — пока недоступны">
             <Button disabled icon={<SettingOutlined />} aria-label="Настройки" />
           </Tooltip>
-          <Tooltip title="Сетка графиков — пока недоступна">
-            <Button disabled icon={<AppstoreOutlined />} aria-label="Сетка графиков" />
+          <Tooltip title="Открыть сетку графиков">
+            <Button icon={<AppstoreOutlined />} aria-label="Сетка графиков" onClick={onOpenGrid} />
           </Tooltip>
         </Space>
       </div>
       <div className={styles['terminal-body']}>
         <Chart symbol={symbol} selected={selected} />
-        <MarketList market={market} selectedSymbol={symbol} onSymbolChange={setSymbol} />
+        <MarketList market={market} selectedSymbol={symbol} onSymbolChange={onSymbolChange} />
       </div>
     </div>
   );
