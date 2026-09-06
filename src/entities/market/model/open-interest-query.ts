@@ -16,6 +16,7 @@ export type OpenInterestPage = {
 
 export function openInterestPeriodForInterval(interval: string): OpenInterestPeriod {
   if (interval === '15m') return '15m';
+  if (interval === '30m') return '30m';
   if (interval === '1h') return '1h';
   if (interval === '4h') return '4h';
   if (interval === '1d') return '1d';

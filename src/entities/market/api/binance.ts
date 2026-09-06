@@ -1,5 +1,6 @@
 import { throwRequestError } from '../../../shared/api/http-client';
 import type { Candle } from '../model/candle';
+import type { FundingSnapshot } from '../model/funding';
 import type { MarketDepthLevel } from '../model/depth';
 import type { MarketRow, MarketTrade } from '../model/market';
 import type { OpenInterestPeriod, OpenInterestPoint, OpenInterestSnapshot } from '../model/open-interest';
@@ -20,6 +21,11 @@ type MarketTicker = Record<string, string>;
 type BinanceCandle = [number, string, string, string, string, string, ...unknown[]];
 type BinanceAggregateTrade = { T: number; p: string; q: string };
 type BinanceOpenInterest = { openInterest: string; time: number };
+type BinancePremiumIndex = {
+  lastFundingRate: string;
+  nextFundingTime: number;
+  time: number;
+};
 type BinanceOpenInterestPoint = {
   sumOpenInterestValue: string;
   timestamp: number;
@@ -119,6 +125,24 @@ export async function getOpenInterest(symbol: string, signal?: AbortSignal): Pro
     return { timestamp: data.time, quantity: asNumber(data.openInterest) };
   } catch (error) {
     throwRequestError(error, 'Open interest unavailable');
+  }
+}
+
+export async function getFundingSnapshot(symbol: string, signal?: AbortSignal): Promise<FundingSnapshot> {
+  try {
+    const { data } = await binanceHttpClient.get<BinancePremiumIndex>('/premiumIndex', {
+      params: { symbol },
+      signal,
+    });
+    const snapshot = {
+      rate: asNumber(data.lastFundingRate),
+      nextFundingTime: data.nextFundingTime,
+      timestamp: data.time,
+    };
+    if (!Object.values(snapshot).every(Number.isFinite)) throw new Error('Invalid Binance funding snapshot');
+    return snapshot;
+  } catch (error) {
+    throwRequestError(error, 'Funding unavailable');
   }
 }
 

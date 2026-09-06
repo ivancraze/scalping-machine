@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { MarketRow } from '../../../entities/market';
 import type { MarketGridFilters } from './types';
+import { defaultMarketGridFilters } from './storage';
 import { selectGridMarkets } from './select-grid-markets';
 
 const market: MarketRow[] = [
@@ -46,15 +47,19 @@ const market: MarketRow[] = [
   },
 ];
 const noFilters: MarketGridFilters = {
+  ...defaultMarketGridFilters(),
   minVolume: null,
-  minTrades: null,
-  minChange: null,
-  maxChange: null,
 };
 
 describe('selectGridMarkets', () => {
   it('searches case-insensitively and combines inclusive numeric filters', () => {
-    const filters = { minVolume: 100, minTrades: 20, minChange: -4, maxChange: 5 };
+    const filters = {
+      ...noFilters,
+      minVolume: 100,
+      minTrades: 20,
+      minChange: -4,
+      maxChange: 5,
+    };
 
     expect(selectGridMarkets(market, 'usdt', 'all', filters, new Set()).map(({ symbol }) => symbol)).toEqual([
       'XRPUSDT',
@@ -83,9 +88,38 @@ describe('selectGridMarkets', () => {
   it('limits a sorted copy without mutating the market snapshot', () => {
     const originalOrder = market.map(({ symbol }) => symbol);
 
-    expect(selectGridMarkets(market, '', 'all', noFilters, new Set(), 2).map(({ symbol }) => symbol)).toEqual(
-      ['XRPUSDT', 'SOLUSDT'],
-    );
+    expect(
+      selectGridMarkets(market, '', 'all', noFilters, new Set(), { limit: 2 }).map(({ symbol }) => symbol),
+    ).toEqual(['XRPUSDT', 'SOLUSDT']);
     expect(market.map(({ symbol }) => symbol)).toEqual(originalOrder);
+  });
+
+  it('applies max/range filters and a normalized blacklist before sorting', () => {
+    const filters = { ...noFilters, maxVolume: 350, minRange: 1, maxTrades: 30 };
+
+    expect(
+      selectGridMarkets(market, '', 'all', filters, new Set(), {
+        blacklist: ['BTCUSDT'],
+        sortField: 'absoluteChange',
+        sortDirection: 'desc',
+      }).map(({ symbol }) => symbol),
+    ).toEqual(['SOLUSDT']);
+  });
+
+  it('filters by NATR and always keeps unavailable NATR values last when sorting', () => {
+    const natrs = { BTCUSDT: 2.5, SOLUSDT: 1.25, XRPUSDT: 3.5 };
+
+    expect(
+      selectGridMarkets(market, '', 'all', noFilters, new Set(), {
+        sortField: 'natr',
+        sortDirection: 'asc',
+        natrs,
+      }).map(({ symbol }) => symbol),
+    ).toEqual(['SOLUSDT', 'BTCUSDT', 'XRPUSDT', 'ETHUSDT']);
+    expect(
+      selectGridMarkets(market, '', 'all', { ...noFilters, minNatr: 2, maxNatr: 3 }, new Set(), {
+        natrs,
+      }).map(({ symbol }) => symbol),
+    ).toEqual(['BTCUSDT']);
   });
 });

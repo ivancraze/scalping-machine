@@ -35,6 +35,7 @@ export function GridChartCanvas({
   openInterestPeriodMs,
   priceTickSize,
   currentPrice,
+  scaleLabelsVisible = true,
 }: {
   palette: ChartPalette;
   candles: Candle[];
@@ -46,6 +47,7 @@ export function GridChartCanvas({
   openInterestPeriodMs: number;
   priceTickSize: string;
   currentPrice: number;
+  scaleLabelsVisible?: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -102,6 +104,13 @@ export function GridChartCanvas({
       priceFormat: { type: 'price', minMove: 10 ** -precision, precision },
     });
   }, [currentPrice, priceTickSize]);
+
+  useLayoutEffect(() => {
+    chartRef.current?.applyOptions({
+      rightPriceScale: { minimumWidth: 40, visible: scaleLabelsVisible },
+      timeScale: { visible: scaleLabelsVisible },
+    });
+  }, [scaleLabelsVisible]);
 
   useLayoutEffect(() => {
     const chart = chartRef.current;

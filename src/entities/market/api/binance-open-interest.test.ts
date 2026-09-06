@@ -10,7 +10,7 @@ vi.mock('./binance-client', () => ({
   binanceFuturesDataHttpClient: { get: mocks.futuresDataGet },
 }));
 
-import { getOpenInterest, getOpenInterestHistory } from './binance';
+import { getFundingSnapshot, getOpenInterest, getOpenInterestHistory } from './binance';
 
 describe('Binance open interest adapter', () => {
   beforeEach(() => vi.clearAllMocks());
@@ -44,6 +44,23 @@ describe('Binance open interest adapter', () => {
     ]);
     expect(mocks.futuresDataGet).toHaveBeenCalledWith('/openInterestHist', {
       params: { symbol: 'BTCUSDT', period: '5m', limit: 500, endTime: 400 },
+      signal,
+    });
+  });
+
+  it('maps Binance USD-M funding rate and schedule', async () => {
+    const signal = new AbortController().signal;
+    mocks.marketGet.mockResolvedValue({
+      data: { lastFundingRate: '-0.000125', nextFundingTime: 1_800, time: 1_200 },
+    });
+
+    await expect(getFundingSnapshot('BTCUSDT', signal)).resolves.toEqual({
+      rate: -0.000125,
+      nextFundingTime: 1_800,
+      timestamp: 1_200,
+    });
+    expect(mocks.marketGet).toHaveBeenCalledWith('/premiumIndex', {
+      params: { symbol: 'BTCUSDT' },
       signal,
     });
   });

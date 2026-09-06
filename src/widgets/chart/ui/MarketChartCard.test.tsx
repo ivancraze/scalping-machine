@@ -51,6 +51,7 @@ vi.mock('../../../entities/market', () => ({
   openInterestPeriodMilliseconds: () => 300_000,
   useGridCandlesQuery: () => ({ data: undefined, isError: false, isPending: true }),
   useGridCandleSubscription: () => undefined,
+  useGridFundingQuery: () => ({ data: undefined }),
   useGridOpenInterestQuery: () => ({ data: [] }),
   useGridOpenInterestSnapshotQuery: () => ({ data: undefined }),
 }));
@@ -69,7 +70,7 @@ const market: MarketRow = {
 };
 
 describe('market chart card timeframe control', () => {
-  it('renders all six timeframe labels in a non-virtualized readable popup', () => {
+  it('renders all eight timeframe labels in a non-virtualized readable popup', () => {
     const markup = renderToStaticMarkup(
       <MarketChartCard
         market={market}
@@ -86,6 +87,7 @@ describe('market chart card timeframe control', () => {
 
     expect(markup).toContain('data-popup-width="72"');
     expect(markup).toContain('data-virtual="false"');
-    for (const label of ['1м', '5м', '15м', '1ч', '4ч', '1д']) expect(markup).toContain(`>${label}<`);
+    for (const label of ['1м', '3м', '5м', '15м', '30м', '1ч', '4ч', '1д'])
+      expect(markup).toContain(`>${label}<`);
   });
 });

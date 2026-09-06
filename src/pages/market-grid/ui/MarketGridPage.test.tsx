@@ -2,8 +2,20 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type * as MarketEntity from '../../../entities/market';
 import type { MarketRow } from '../../../entities/market';
 import MarketGridPage from './MarketGridPage';
+
+const mocks = vi.hoisted(() => ({
+  useGridNatrsQuery: vi.fn<(symbols: string[], enabled: boolean) => { data: Record<string, number> }>(() => ({
+    data: {},
+  })),
+}));
+
+vi.mock('../../../entities/market', async (importOriginal) => ({
+  ...(await importOriginal<typeof MarketEntity>()),
+  useGridNatrsQuery: mocks.useGridNatrsQuery,
+}));
 
 vi.mock('../../../features/market-list-controls', () => ({
   useMarketListControls: () => ({ favoriteSymbols: new Set<string>(), toggleFavorite: vi.fn() }),
@@ -25,16 +37,22 @@ const market: MarketRow[] = Array.from({ length: 40 }, (_, index) => ({
   trades: index,
   volume: 40 - index,
 }));
+const nativeGetComputedStyle = window.getComputedStyle;
 
 let container: HTMLDivElement;
 let root: Root;
 
 beforeEach(() => {
+  vi.clearAllMocks();
+  vi.spyOn(window, 'getComputedStyle').mockImplementation((element) =>
+    nativeGetComputedStyle.call(window, element),
+  );
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal(
     'ResizeObserver',
     class {
       observe() {}
+      unobserve() {}
       disconnect() {}
     },
   );
@@ -70,10 +88,77 @@ afterEach(async () => {
   await act(() => root.unmount());
   container.remove();
   localStorage.clear();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 
 describe('market grid virtualization', () => {
+  it('requests NATR for the applied volume-ascending slice in its actual order', async () => {
+    const stored = JSON.parse(localStorage.getItem('pulse-terminal:market-grid-settings') ?? '{}');
+    stored.version = 2;
+    stored.settings.sortField = 'volume';
+    stored.settings.sortDirection = 'asc';
+    stored.settings.limit = 3;
+    localStorage.setItem('pulse-terminal:market-grid-settings', JSON.stringify(stored));
+
+    await act(() => root.render(<MarketGridPage market={market} onOpenMainChart={vi.fn()} />));
+
+    expect(mocks.useGridNatrsQuery).toHaveBeenLastCalledWith(
+      ['COIN39USDT', 'COIN38USDT', 'COIN37USDT'],
+      true,
+    );
+  });
+
+  it('unions applied volume-ascending symbols with a different draft NATR candidate set', async () => {
+    const stored = JSON.parse(localStorage.getItem('pulse-terminal:market-grid-settings') ?? '{}');
+    stored.version = 2;
+    stored.settings.sortField = 'volume';
+    stored.settings.sortDirection = 'asc';
+    stored.settings.limit = 3;
+    localStorage.setItem('pulse-terminal:market-grid-settings', JSON.stringify(stored));
+    await act(() => root.render(<MarketGridPage market={market} onOpenMainChart={vi.fn()} />));
+
+    const filtersButton = container.querySelector<HTMLButtonElement>('[aria-label="Фильтры сетки"]');
+    await act(() => filtersButton?.click());
+    const natrLabel = [...document.body.querySelectorAll<HTMLLabelElement>('label')].find(({ textContent }) =>
+      textContent?.includes('NATR 5м/14 от'),
+    );
+    const input = natrLabel?.querySelector<HTMLInputElement>('input');
+    expect(input).not.toBeNull();
+    await act(() => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+      setter?.call(input, '1');
+      input?.dispatchEvent(new Event('input', { bubbles: true }));
+      input?.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+
+    await vi.waitFor(() => {
+      const symbols = mocks.useGridNatrsQuery.mock.calls.at(-1)?.[0] ?? [];
+      expect(symbols).toHaveLength(40);
+      expect(symbols.slice(0, 3)).toEqual(['COIN39USDT', 'COIN38USDT', 'COIN37USDT']);
+      expect(symbols).toContain('COIN00USDT');
+    });
+  });
+
+  it('labels the activity view by trade count and exposes the extra minute timeframes', async () => {
+    const stored = JSON.parse(localStorage.getItem('pulse-terminal:market-grid-settings') ?? '{}');
+    stored.settings.view = 'active';
+    localStorage.setItem('pulse-terminal:market-grid-settings', JSON.stringify(stored));
+    await act(() => root.render(<MarketGridPage market={market} onOpenMainChart={vi.fn()} />));
+
+    const viewControl = container.querySelector<HTMLElement>('[aria-label="Представление сетки"]');
+    expect(viewControl?.closest('.ant-select')?.textContent).toContain('Кол-во сделок');
+    const extraTimeframes = container.querySelector<HTMLElement>(
+      '[aria-label="Дополнительный общий таймфрейм"]',
+    );
+    expect(extraTimeframes).not.toBeNull();
+    await act(() =>
+      extraTimeframes?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 })),
+    );
+    expect(document.body.textContent).toContain('3м');
+    expect(document.body.textContent).toContain('30м');
+  });
+
   it('mounts only visible rows with overscan and swaps them on scroll', async () => {
     await act(() => root.render(<MarketGridPage market={market} onOpenMainChart={vi.fn()} />));
 

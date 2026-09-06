@@ -22,9 +22,23 @@
   width: 180px;
   flex-shrink: 0;
 }
+.presets {
+  width: 170px;
+  flex-shrink: 0;
+}
+.view-select {
+  width: 180px;
+  min-width: 180px;
+  flex-shrink: 0;
+}
 .timeframes {
   flex-shrink: 0;
   font-weight: 600;
+}
+.extra-timeframes {
+  width: 64px;
+  min-width: 64px;
+  flex-shrink: 0;
 }
 .indicators {
   color: var(--text-secondary);
@@ -69,7 +83,46 @@
 }
 .filters label {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 180px;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 324px);
   align-items: center;
   gap: 12px;
+}
+.sort-control {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) 36px 36px;
+  gap: 6px;
+}
+.sort-field {
+  width: 100%;
+  min-width: 0;
+}
+.sort-direction {
+  width: 36px;
+  min-width: 36px;
+  padding-inline: 0;
+}
+.preview {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: var(--page-background);
+  color: var(--text-secondary);
+}
+.preview strong {
+  color: var(--text);
+}
+
+@media (max-width: 600px) {
+  .filters label {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+  .filters label > :last-child,
+  .sort-control {
+    width: 100%;
+  }
 }

@@ -20,14 +20,20 @@ describe('market grid settings storage', () => {
       timeframe: '15м',
       view: 'favorites',
       volumeVisible: false,
-      filters: { minVolume: 10_000, minTrades: 500, minChange: -2, maxChange: 8 },
+      filters: {
+        ...defaultMarketGridSettings().filters,
+        minVolume: 10_000,
+        minTrades: 500,
+        minChange: -2,
+        maxChange: 8,
+      },
       symbolTimeframes: { BTCUSDT: '1ч', ETHUSDT: '1д' },
     };
 
     saveMarketGridSettings(settings);
 
     expect(JSON.parse(storage.get('pulse-terminal:market-grid-settings') ?? '')).toEqual({
-      version: 1,
+      version: 2,
       settings,
     });
     expect(loadMarketGridSettings()).toEqual(settings);
@@ -39,9 +45,47 @@ describe('market grid settings storage', () => {
 
     storage.set(
       'pulse-terminal:market-grid-settings',
-      JSON.stringify({ version: 2, settings: { columns: 4 } }),
+      JSON.stringify({ version: 3, settings: { columns: 4 } }),
     );
     expect(loadMarketGridSettings()).toEqual(defaultMarketGridSettings());
+  });
+
+  it('migrates v1 settings to the v2 filter and sorting model', () => {
+    storage.set(
+      'pulse-terminal:market-grid-settings',
+      JSON.stringify({
+        version: 1,
+        settings: {
+          columns: 2,
+          mode: 'pages',
+          timeframe: '15м',
+          view: 'losers',
+          volumeVisible: false,
+          openInterestVisible: true,
+          filters: { minVolume: 100, minTrades: 20, minChange: -10, maxChange: -1 },
+          symbolTimeframes: { BTCUSDT: '3м' },
+        },
+      }),
+    );
+
+    expect(loadMarketGridSettings()).toEqual({
+      ...defaultMarketGridSettings(),
+      columns: 2,
+      mode: 'pages',
+      timeframe: '15м',
+      view: 'losers',
+      volumeVisible: false,
+      filters: {
+        ...defaultMarketGridSettings().filters,
+        minVolume: 100,
+        minTrades: 20,
+        minChange: -10,
+        maxChange: -1,
+      },
+      sortField: 'change',
+      sortDirection: 'asc',
+      symbolTimeframes: { BTCUSDT: '3м' },
+    });
   });
 
   it('sanitizes invalid enum, numeric, and per-symbol timeframe values', () => {
@@ -69,7 +113,13 @@ describe('market grid settings storage', () => {
 
     expect(loadMarketGridSettings()).toEqual({
       ...defaultMarketGridSettings(),
-      filters: { minVolume: null, minTrades: null, minChange: -5, maxChange: 10 },
+      filters: {
+        ...defaultMarketGridSettings().filters,
+        minVolume: null,
+        minTrades: null,
+        minChange: -5,
+        maxChange: 10,
+      },
       symbolTimeframes: { BTCUSDT: '1ч' },
     });
   });

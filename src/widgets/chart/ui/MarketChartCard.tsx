@@ -12,11 +12,15 @@ import {
   openInterestPeriodMilliseconds,
   useGridCandlesQuery,
   useGridCandleSubscription,
+  useGridFundingQuery,
   useGridOpenInterestQuery,
   useGridOpenInterestSnapshotQuery,
   type MarketRow,
 } from '../../../entities/market';
-import type { MarketGridTimeframe } from '../../../features/market-grid-controls';
+import type {
+  MarketGridTechnicalDataMode,
+  MarketGridTimeframe,
+} from '../../../features/market-grid-controls';
 import { compactUsd, percentage } from '../../../shared/lib/format';
 import type { ChartPalette } from '../model/types';
 import { GridChartCanvas } from './GridChartCanvas';
@@ -24,8 +28,10 @@ import styles from './MarketChartCard.module.scss';
 
 const INTERVALS: Record<MarketGridTimeframe, string> = {
   '1м': '1m',
+  '3м': '3m',
   '5м': '5m',
   '15м': '15m',
+  '30м': '30m',
   '1ч': '1h',
   '4ч': '4h',
   '1д': '1d',
@@ -38,6 +44,9 @@ type MarketChartCardProps = {
   favorite: boolean;
   volumeVisible: boolean;
   openInterestVisible: boolean;
+  scaleLabelsVisible?: boolean;
+  technicalDataMode?: MarketGridTechnicalDataMode;
+  natr?: number;
   forceActive?: boolean;
   onTimeframeChange: (timeframe: MarketGridTimeframe) => void;
   onFavoriteChange: () => void;
@@ -51,6 +60,9 @@ export const MarketChartCard = memo(function MarketChartCard({
   favorite,
   volumeVisible,
   openInterestVisible,
+  scaleLabelsVisible = true,
+  technicalDataMode = 'detailed',
+  natr,
   forceActive = false,
   onTimeframeChange,
   onFavoriteChange,
@@ -103,6 +115,7 @@ export const MarketChartCard = memo(function MarketChartCard({
     market.price,
     nearViewport && openInterestVisible,
   );
+  const fundingQuery = useGridFundingQuery(market.symbol, nearViewport);
   const displayedOpenInterest = useMemo(
     () => [
       ...(openInterestQuery.data ?? []),
@@ -169,15 +182,34 @@ export const MarketChartCard = memo(function MarketChartCard({
         </div>
       </header>
       <div className={styles.metrics}>
-        <span>{compactUsd(market.volume)}$</span>
+        <span>
+          {technicalDataMode === 'detailed' ? 'Оборот ' : ''}
+          {compactUsd(market.volume)}$
+        </span>
         <span className={market.change >= 0 ? styles.green : styles.red}>{percentage(market.change)}</span>
-        <span>{compactUsd(market.trades)} сделок</span>
-        <span>NATR {market.natr.toFixed(2)}%</span>
+        <span>
+          {technicalDataMode === 'detailed'
+            ? `${compactUsd(market.trades)} сделок`
+            : compactUsd(market.trades)}
+        </span>
+        <span>
+          {technicalDataMode === 'detailed' ? 'NATR 5м/14 ' : ''}
+          {natr === undefined ? '—' : `${natr.toFixed(2)}%`}
+        </span>
         {openInterestVisible && (
           <span>
-            OI {currentOpenInterest.data ? `≈${compactUsd(currentOpenInterest.data.valueUsd)}$` : '—'}
+            {technicalDataMode === 'detailed' ? 'OI ' : ''}
+            {currentOpenInterest.data ? `≈${compactUsd(currentOpenInterest.data.valueUsd)}$` : '—'}
           </span>
         )}
+        <span className={(fundingQuery.data?.rate ?? 0) >= 0 ? styles.green : styles.red}>
+          {technicalDataMode === 'detailed' ? 'Funding ' : 'F '}
+          {fundingQuery.data
+            ? `${percentage(fundingQuery.data.rate * 100)}${
+                technicalDataMode === 'detailed' ? ` · ${timeUntil(fundingQuery.data.nextFundingTime)}` : ''
+              }`
+            : '—'}
+        </span>
       </div>
       <div className={styles.chart}>
         {nearViewport ? (
@@ -193,6 +225,7 @@ export const MarketChartCard = memo(function MarketChartCard({
               openInterestPeriodMs={openInterestPeriodMilliseconds(openInterestPeriod)}
               priceTickSize={market.priceTickSize}
               currentPrice={market.price}
+              scaleLabelsVisible={scaleLabelsVisible}
             />
             {candlesQuery.isError && !candlesQuery.data ? (
               <Alert
@@ -221,7 +254,16 @@ function areCardPropsEqual(previous: MarketChartCardProps, next: MarketChartCard
     previous.favorite === next.favorite &&
     previous.volumeVisible === next.volumeVisible &&
     previous.openInterestVisible === next.openInterestVisible &&
+    previous.scaleLabelsVisible === next.scaleLabelsVisible &&
+    previous.technicalDataMode === next.technicalDataMode &&
+    previous.natr === next.natr &&
     previous.forceActive === next.forceActive &&
     Boolean(previous.onExpand) === Boolean(next.onExpand)
   );
+}
+
+function timeUntil(timestamp: number) {
+  const minutes = Math.max(0, Math.ceil((timestamp - Date.now()) / 60_000));
+  const hours = Math.floor(minutes / 60);
+  return hours > 0 ? `${hours}ч ${minutes % 60}м` : `${minutes}м`;
 }

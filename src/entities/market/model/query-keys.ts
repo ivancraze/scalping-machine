@@ -20,6 +20,8 @@ export const marketQueryKeys = {
     [...marketQueryKeys.all, 'natr', symbol, interval, period] as const,
   natrs: (symbols: string[], interval: string, period: number) =>
     [...marketQueryKeys.all, 'natrs', interval, period, symbols] as const,
+  gridNatrs: (symbols: string[], interval: string, period: number) =>
+    [...marketQueryKeys.all, 'natrs', 'grid', interval, period, symbols] as const,
   openInterest: (symbol: string) => [...marketQueryKeys.all, 'open-interest', symbol] as const,
   openInterestHistory: (symbol: string, period: string) =>
     [...marketQueryKeys.all, 'open-interest-history', symbol, period] as const,
@@ -27,4 +29,5 @@ export const marketQueryKeys = {
     [...marketQueryKeys.all, 'open-interest', 'grid', symbol, period] as const,
   gridOpenInterestSnapshot: (symbol: string) =>
     [...marketQueryKeys.all, 'open-interest', 'grid-snapshot', symbol] as const,
+  gridFunding: (symbol: string) => [...marketQueryKeys.all, 'funding', 'grid', symbol] as const,
 };
